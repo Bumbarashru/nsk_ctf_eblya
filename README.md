@@ -40,3 +40,4 @@ git reset --hard <commit>    # откат к коммиту (локально)
 git push --force             # перезапись своей ветки (аккуратно)
 git checkout -- <file>       # откат одного файла
 ```
+huy
