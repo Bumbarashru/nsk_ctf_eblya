@@ -1,6 +1,5 @@
 # nsk_ctf_eblya
 
-
 # Базища
 ```bash
 git clone <url>
@@ -40,4 +39,4 @@ git log --oneline            # смотрим историю
 git reset --hard <commit>    # откат к коммиту (локально)
 git push --force             # перезапись своей ветки (аккуратно)
 git checkout -- <file>       # откат одного файла
-```
+`
