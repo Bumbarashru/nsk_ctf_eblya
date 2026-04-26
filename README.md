@@ -8,7 +8,14 @@
 порт для CLOUD COMANDER 8000
 
 # nsk_ctf_eblya
-
+чат сэтэфэ: https://chat.sslctf.ru/
+Креды: SharLike | 85b6e0096eaa99be
+Данил сус админ - 10.1.15.11
+Сеня - 10.1.15.12
+Никита - 10.1.15.13
+Стас - 10.1.15.14
+Саня - 10.1.15.16
+порт для CLOUD COMANDER 8000
 # Базища
 ```bash
 git clone <url>
