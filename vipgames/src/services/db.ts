@@ -133,7 +133,12 @@ export class Db {
       CREATE INDEX IF NOT EXISTS idx_journal_user ON achievement_journal(user_id);
     `);
   }
-
+  private assertOwner(table: string, id: number, userId: number): void {
+    const row = this.db.prepare(`SELECT user_id FROM ${table} WHERE id = ?`).get(id) as any;
+    if (!row || row.user_id !== userId) {
+      throw new Error("access_denied");
+    }
+  }
   createUser(username: string, passwordHash: string): number {
     const stmt = this.db.prepare(
       "INSERT INTO users(username, password_hash) VALUES (?, ?)"
@@ -364,12 +369,15 @@ export class Db {
     this.unlockAchievement(userId, "PUZZLE_KNIGHT");
   }
 
-  getPuzzleBoard(boardId: number): Record<string, unknown> | undefined {
+  getPuzzleBoard(userId: number, boardId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, title, stego_payload AS stegoPayload, tiles_seed AS tilesSeed, solved FROM puzzle_boards WHERE id = ?"
+        `SELECT id, user_id AS userId, title, stego_payload AS stegoPayload, 
+                tiles_seed AS tilesSeed, solved 
+        FROM puzzle_boards 
+        WHERE id = ? AND user_id = ?`  
       )
-      .get(boardId) as Record<string, unknown> | undefined;
+      .get(boardId, userId) as Record<string, unknown> | undefined;
   }
 
   createPet(userId: number, name: string, tag: string): number {
@@ -433,12 +441,12 @@ export class Db {
     return transaction();
   }
 
-  getPet(petId: number): Record<string, unknown> | undefined {
+  getPet(userId: number, petId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, name, tag, bio, rarity, state_json AS stateJson FROM pets WHERE id = ?"
+        "SELECT id, user_id AS userId, name, tag, bio, rarity, state_json AS stateJson FROM pets WHERE id = ? AND user_id = ?"
       )
-      .get(petId) as Record<string, unknown> | undefined;
+      .get(petId, userId) as Record<string, unknown> | undefined;
   }
 
   createAlchemyRun(userId: number, recipe: string): number {
@@ -466,10 +474,11 @@ export class Db {
       .run(artifactNote, runId, userId);
     this.addGameRun(userId, "alchemy", 90);
     this.unlockAchievement(userId, "ALCHEMIST");
-    return this.getAlchemyArtifact(runId) ?? run;
+    return this.getAlchemyArtifact(userId, runId) ?? run;
   }
 
-  getAlchemyArtifact(runId: number): Record<string, unknown> | undefined {
+  getAlchemyArtifact(userId: number, runId: number): Record<string, unknown> | undefined {
+    this.assertOwner("alchemy_runs", runId, userId);
     return this.db
       .prepare(
         "SELECT id, user_id AS userId, recipe, state, artifact_note AS artifactNote FROM alchemy_runs WHERE id = ?"
@@ -533,12 +542,12 @@ export class Db {
     return transaction();
   } 
 
-  getCard(cardId: number): Record<string, unknown> | undefined {
+  getCard(userId: number, cardId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, custom_name AS customName, power, metadata_json AS metadataJson FROM cards WHERE id = ?"
+        "SELECT id, user_id AS userId, custom_name AS customName, power, metadata_json AS metadataJson FROM cards WHERE id = ? AND user_id = ?"
       )
-      .get(cardId) as Record<string, unknown> | undefined;
+      .get(cardId, userId) as Record<string, unknown> | undefined;
   }
 
   listRecentRuns(limit = 20): Array<Record<string, unknown>> {

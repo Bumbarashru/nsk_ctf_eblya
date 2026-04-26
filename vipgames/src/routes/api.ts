@@ -167,14 +167,15 @@ export const apiRoutes: FastifyPluginAsync = async (app) => {
   });
 
   app.get("/api/games/puzzle/:id/preview", async (request, reply) => {
+    const user = requireUser(request, reply);  
     const params = request.params as { id: string };
     const id = parseId(params.id);
     const mode = String((request.query as { mode?: string }).mode ?? "normal");
-    const board = app.db.getPuzzleBoard(id);
+    const board = app.db.getPuzzleBoard(user.id, id);
+    
     if (!board) {
       return reply.code(404).send({ error: "not_found" });
     }
-
     if (mode === "solved") {
       return {
         id,
@@ -233,7 +234,7 @@ export const apiRoutes: FastifyPluginAsync = async (app) => {
     const user = requireUser(request, reply);
     const params = request.params as { id: string };
     const id = parseId(params.id);
-    const pet = app.db.getPet(id);
+    const pet = app.db.getPet(user.id,id);
     if (!pet || pet.userId !== user.id) {
       return reply.code(404).send({ error: "not_found" });
     }
@@ -265,8 +266,8 @@ export const apiRoutes: FastifyPluginAsync = async (app) => {
     const user = requireUser(request, reply);
     const params = request.params as { id: string };
     const id = parseId(params.id);
-    const artifact = app.db.getAlchemyArtifact(id);
-    if (!artifact || artifact.userId !== user.id) {
+    const artifact = app.db.getAlchemyArtifact(user.id, id);
+    if (!artifact) {
       return reply.code(404).send({ error: "not_found" });
     }
     return artifact;
@@ -288,8 +289,8 @@ export const apiRoutes: FastifyPluginAsync = async (app) => {
     const user = requireUser(request, reply);
     const params = request.params as { id: string };
     const id = parseId(params.id);
-    const card = app.db.getCard(id);
-    if (!card || card.userId !== user.id) {
+    const card = app.db.getCard(user.id, id);
+    if (!card) {
       return reply.code(404).send({ error: "not_found" });
     }
     return card;
