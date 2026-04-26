@@ -490,6 +490,12 @@ export class Db {
   }
 
   createTrade(fromUserId: number, toUserId: number, cardId: number): number {
+    const card = this.db
+      .prepare("SELECT id FROM cards WHERE id = ? AND user_id = ?")
+      .get(cardId, fromUserId);
+    if (!card) {
+      throw new Error("card_not_owned_by_from_user");
+    }
     const info = this.db
       .prepare("INSERT INTO trades(from_user_id, to_user_id, card_id, status) VALUES (?, ?, ?, 'pending')")
       .run(fromUserId, toUserId, cardId);
