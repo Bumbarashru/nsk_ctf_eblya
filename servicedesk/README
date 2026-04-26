@@ -1,0 +1,38 @@
+# ServiceDesk: Fix for Critical Privilege Escalation
+
+## Что было уязвимо
+
+В `PATCH /api/users/me` профиль обновлялся через массовое присваивание:
+
+```python
+for field, value in data.items():
+    setattr(current_user, field, value)
+```
+
+Запрос принимал чувствительные поля:
+
+- `workspace`
+- `queue_scope`
+- `access_level`
+
+Дополнительно проверка support-доступа была спрятана в обфусцированном `exec(...)` внутри `app/utils/roles.py`, и поведение зависело от этих же полей профиля.
+
+Итог: обычный пользователь мог изменить профиль так, чтобы получить `support_mode = true`.
+
+## Что исправлено
+
+Сделан точечный фикс только этой уязвимости:
+
+1. `app/routers/users.py`
+- Обновление защищенных полей (`workspace`, `queue_scope`, `access_level`) теперь запрещено в `PATCH /api/users/me` с `403`.
+- Убрано массовое `setattr(...)`.
+- Разрешено менять только безопасные поля: `username`, `email`, `contact_phone`.
+
+2. `app/utils/roles.py`
+- Убран обфусцированный код и `exec(...)`.
+- `is_support_capable(user)` теперь опирается только на роль пользователя: support-доступ есть только у `role == "agent"`.
+
+## Измененные файлы
+
+- `app/routers/users.py`
+- `app/utils/roles.py`
