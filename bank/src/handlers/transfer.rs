@@ -124,22 +124,43 @@ pub async fn list_transactions(
 
     let limit = query.limit.unwrap_or(50).clamp(1, 200);
 
-    let order = match query
-        .order
-        .as_deref()
-        .unwrap_or("desc")
-        .to_lowercase()
-        .as_str()
-    {
+    // ✅ FIX: Whitelist для order (обратно совместимо)
+    let order_raw = query.order.as_deref().unwrap_or("desc");
+    let order = match order_raw.to_lowercase().as_str() {
         "asc" => "ASC",
-        _ => "DESC",
+        "desc" => "DESC",
+        invalid => {
+            log::warn!("Invalid order value: '{}', defaulting to DESC", invalid);
+            "DESC"
+        }
     };
 
-    let order_column = match query.sort.as_deref().unwrap_or("created_at") {
+    // ✅ FIX: Whitelist для sort column (обратно совместимо)
+    let sort_raw = query.sort.as_deref().unwrap_or("created_at");
+    let order_column = match sort_raw {
         "amount" => "t.amount",
         "id" => "t.id",
-        _ => "t.created_at",
+        "created_at" => "t.created_at",
+        unknown => {
+            log::warn!("Unknown sort column: '{}', defaulting to created_at", unknown);
+            "t.created_at"
+        }
     };
+
+    // ✅ FIX: Дополнительная проверка на опасные символы
+    let dangerous_chars = [';', '\'', '"', '\\', '\n', '\r', '\0', '(', ')'];
+    
+    if order_raw.chars().any(|c| dangerous_chars.contains(&c)) {
+        log::error!("Potential SQL injection in order: {:?}", order_raw);
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Invalid order parameter"}));
+    }
+    
+    if sort_raw.chars().any(|c| dangerous_chars.contains(&c)) {
+        log::error!("Potential SQL injection in sort: {:?}", sort_raw);
+        return HttpResponse::BadRequest()
+            .json(serde_json::json!({"error": "Invalid sort parameter"}));
+    }
 
     let sql = format!(
         "SELECT t.id, t.from_user, t.to_user,
@@ -154,12 +175,20 @@ pub async fn list_transactions(
         order_column, order
     );
 
+    // ✅ FIX: Финальная проверка SQL
+    if sql.contains([';', '\'', '"']) {
+        log::error!("SQL injection detected in generated query");
+        return HttpResponse::InternalServerError()
+            .json(serde_json::json!({"error": "Internal error"}));
+    }
+
     let db = state.db.lock().unwrap();
     let mut stmt = match db.prepare(&sql) {
         Ok(s) => s,
-        Err(_) => {
+        Err(e) => {
+            log::error!("SQL prepare error: {:?}", e);
             return HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Query error"}))
+                .json(serde_json::json!({"error": "Query error"}));
         }
     };
 
@@ -178,9 +207,10 @@ pub async fn list_transactions(
 
     let txs: Vec<TransactionInfo> = match rows {
         Ok(r) => r.filter_map(|x| x.ok()).collect(),
-        Err(_) => {
+        Err(e) => {
+            log::error!("Query failed: {:?}", e);
             return HttpResponse::InternalServerError()
-                .json(serde_json::json!({"error": "Query failed"}))
+                .json(serde_json::json!({"error": "Query failed"}));
         }
     };
 
