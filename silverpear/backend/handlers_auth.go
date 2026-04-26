@@ -3,6 +3,7 @@ package main
 import (
     "database/sql"
     "errors"
+	"log"
     "net/http"
     "strings"
     "time"

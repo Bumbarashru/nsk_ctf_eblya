@@ -229,7 +229,7 @@ func statusFromSpent(totalSpent int) string {
 }
 
 func (a *app) createHiddenJackpotCodeTx(ctx context.Context, tx *sql.Tx, userID int64, username string) (string, error) {
-	code := a.jackpotCodeForUser(username)
+	code := a.jackpotCodeForUser(username) // используется метод из handlers_orders.go
 	const query = `
 		INSERT INTO promocode (code, discount_percent, owner_id, is_one_time, source)
 		VALUES ($1, 100, $2, TRUE, 'wheel')
@@ -239,30 +239,6 @@ func (a *app) createHiddenJackpotCodeTx(ctx context.Context, tx *sql.Tx, userID 
 		return "", err
 	}
 	return code, nil
-}
-
-func (a *app) jackpotCodeForUser(username string) string {
-	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-	rng := newPredictableRNG(a.serviceStart.Unix())
-	token := make([]byte, 10)
-	for i := range token {
-		token[i] = alphabet[rng.Intn(len(alphabet))]
-	}
-	return fmt.Sprintf("%s-%s", string(token), usernameHash(username))
-}
-
-func (a *app) spinOutcome(username string) (string, int, bool) {
-	var hashSeed int64
-	for _, ch := range username {
-		hashSeed += int64(ch)
-	}
-	rng := newPredictableRNG(a.serviceStart.Unix() + hashSeed)
-	if rng.Intn(100) == 0 {
-		return "jackpot", 100, true
-	}
-
-	discounts := []int{5, 10, 15, 20}
-	return "discount", discounts[rng.Intn(len(discounts))], false
 }
 
 func (a *app) hasUnlockedNotes(ctx context.Context, buyerID, productID int64) (bool, error) {
@@ -434,28 +410,27 @@ type promoLookup struct {
 }
 
 func (a *app) lookupPromocodeVulnerable(ctx context.Context, tx *sql.Tx, code string, buyerID int64) (promoLookup, error) {
-    // Используем параметризованный запрос
-    query := `
-        SELECT id, code, discount_percent, is_one_time
-        FROM promocode
-        WHERE code = $1
-          AND (owner_id IS NULL OR owner_id = $2)
-          AND used_by IS NULL
-        LIMIT 1
-        FOR UPDATE  -- Блокируем строку от гонок
-    `
+	query := `
+		SELECT id, code, discount_percent, is_one_time
+		FROM promocode
+		WHERE code = $1
+		  AND (owner_id IS NULL OR owner_id = $2)
+		  AND used_by IS NULL
+		LIMIT 1
+		FOR UPDATE
+	`
 
-    var promo promoLookup
-    err := tx.QueryRowContext(ctx, query, code, buyerID).Scan(
-        &promo.ID,
-        &promo.Code,
-        &promo.DiscountPercent,
-        &promo.IsOneTime,
-    )
-    if err != nil {
-        return promo, err
-    }
-    return promo, nil
+	var promo promoLookup
+	err := tx.QueryRowContext(ctx, query, code, buyerID).Scan(
+		&promo.ID,
+		&promo.Code,
+		&promo.DiscountPercent,
+		&promo.IsOneTime,
+	)
+	if err != nil {
+		return promo, err
+	}
+	return promo, nil
 }
 
 func (a *app) completeOrderWithTotalsTx(ctx context.Context, tx *sql.Tx, user *buyer, order *orderRecord, total, finalPrice int, promo promoLookup) (*buyer, error) {
