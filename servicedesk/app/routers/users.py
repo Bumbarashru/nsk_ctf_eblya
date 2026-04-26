@@ -3,6 +3,7 @@ from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel, Field
 from sqlalchemy import select
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from database import get_db
@@ -16,8 +17,7 @@ class ProfileUpdate(BaseModel):
     username: Optional[str] = None
     email: Optional[str] = None
     contact_phone: Optional[str] = Field(default=None, max_length=128)
-    workspace: Optional[str] = None
-    queue_scope: Optional[str] = None
+    # workspace, queue_scope, access_level не включены – они запрещены для изменения
 
 
 @router.get("/me")
@@ -39,6 +39,8 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     data = body.model_dump(exclude_none=True)
+
+    # Дополнительная защита от передачи запрещённых полей (на случай, если в запросе они всё же будут)
     protected_fields = {"workspace", "queue_scope", "access_level"}
     attempted_protected = sorted(protected_fields.intersection(data.keys()))
     if attempted_protected:
@@ -47,23 +49,45 @@ async def update_profile(
             f"Changing protected profile fields is forbidden: {', '.join(attempted_protected)}",
         )
 
+    # Обновление username с проверкой уникальности
     if "username" in data:
-        username = data["username"].strip()
-        if not username:
+        new_username = data["username"].strip()
+        if not new_username:
             raise HTTPException(400, "Username cannot be empty")
-        current_user.username = username
+        existing = await db.execute(
+            select(User).where(User.username == new_username, User.id != current_user.id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(400, "Username already taken")
+        current_user.username = new_username
 
+    # Обновление email с проверкой уникальности
     if "email" in data:
-        email = data["email"].strip()
-        if not email:
+        new_email = data["email"].strip()
+        if not new_email:
             raise HTTPException(400, "Email cannot be empty")
-        current_user.email = email
+        existing = await db.execute(
+            select(User).where(User.email == new_email, User.id != current_user.id)
+        )
+        if existing.scalar_one_or_none():
+            raise HTTPException(400, "Email already taken")
+        current_user.email = new_email
 
+    # Обновление телефона
     if "contact_phone" in data:
         current_user.contact_phone = data["contact_phone"].strip()
 
-    await db.commit()
-    await db.refresh(current_user)
+    try:
+        await db.commit()
+        await db.refresh(current_user)
+    except IntegrityError as e:
+        await db.rollback()
+        # Защита от гонок (редкий случай дублирования после проверки)
+        if "username" in str(e.orig) or "users_username_key" in str(e.orig):
+            raise HTTPException(400, "Username already exists")
+        if "email" in str(e.orig) or "users_email_key" in str(e.orig):
+            raise HTTPException(400, "Email already exists")
+        raise HTTPException(500, "Database error")
 
     return {
         "id": current_user.id,
@@ -75,6 +99,7 @@ async def update_profile(
     }
 
 
+# Остальные эндпоинты (get_user, list_users) остаются без изменений
 @router.get("/{user_id}")
 async def get_user(
     user_id: str,
