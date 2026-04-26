@@ -1,4 +1,4 @@
-FROM ubuntu:20.04
+FROM 10.80.0.10:6789/ubuntu:20.04
 
 RUN apt-get update && apt-get install -y \
     libmicrohttpd12 \

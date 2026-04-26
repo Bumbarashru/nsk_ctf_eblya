@@ -1,10 +1,10 @@
 services:
   db:
-    image: postgres:17-alpine
+    image: 10.80.0.10:6789/postgres:17-alpine
     restart: unless-stopped
     environment:
       POSTGRES_USER: sd
-      POSTGRES_PASSWORD: dfregtfrrgr66754bt55gfd56htfgb
+      POSTGRES_PASSWORD: sd_pass
       POSTGRES_DB: servicedesk
     volumes:
       - pgdata:/var/lib/postgresql/data
