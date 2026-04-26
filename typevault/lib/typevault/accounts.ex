@@ -3,9 +3,26 @@ defmodule TypeVault.Accounts do
   alias TypeVault.Repo
   alias TypeVault.Accounts.User
 
-  def get_user!(id), do: Repo.get!(User, id)
+  def get_user!(id, current_user \\ nil) do
+    user = Repo.get!(User, id)
+    if current_user && (user.id == current_user.id || current_user.role == "admin") do
+      user
+    else
+      raise "Not authorized"
+    end
+  end
 
-  def get_user(id), do: Repo.get(User, id)
+  def get_user(id, current_user \\ nil) do
+    case Repo.get(User, id) do
+      nil -> nil
+      user ->
+        if current_user && (user.id == current_user.id || current_user.role == "admin") do
+          user
+        else
+          nil
+        end
+    end
+  end
 
   def get_user_by_email(email) when is_binary(email) do
     Repo.get_by(User, email: email)
