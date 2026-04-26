@@ -31,6 +31,7 @@ services:
       CHECKD_PRINT_SERVICE_PORT: "8080"
       CHECKD_SIGNATURE_API_HOST: token-verfer
       CHECKD_SIGNATURE_API_PORT: "8082"
+      CHECKD_SIGNATURE_API_KEY: "change-me-please-long-random-key"
     volumes:
       - token_verfer_keys:/var/lib/checkd/token-verfer-keys:ro
     depends_on:
@@ -44,8 +45,10 @@ services:
       context: ../..
       dockerfile: docker-files/token-verfer-1/Dockerfile
     restart: unless-stopped
-    ports:
-      - "8082:8082"
+    expose:
+      - "8082"
+    environment:
+      CHECKD_SIGNATURE_API_KEY: "change-me-please-long-random-key"
     volumes:
       - token_verfer_keys:/app/keys
     networks:
