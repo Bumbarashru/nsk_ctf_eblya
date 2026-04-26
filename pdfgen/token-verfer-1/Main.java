@@ -21,12 +21,19 @@ import java.util.concurrent.Executors;
 public class Main {
     private static PrivateKey privateKey;
     private static PublicKey publicKey;
+    private static String signatureApiKey;
 
     private static final Path PUBLIC_KEY_FILE = Path.of("keys", "public.key");
     private static final Path PRIVATE_KEY_FILE = Path.of("keys", "private.key");
+    private static final String API_KEY_HEADER = "X-CheckD-Api-Key";
 
 
     public static void main(String[] args) throws Exception {
+        signatureApiKey = System.getenv("CHECKD_SIGNATURE_API_KEY");
+        if (signatureApiKey == null || signatureApiKey.isBlank()) {
+            throw new IllegalStateException("CHECKD_SIGNATURE_API_KEY must be set");
+        }
+
         if (!Files.exists(PUBLIC_KEY_FILE) || !Files.exists(PRIVATE_KEY_FILE)) {
             KeyPairGenerator kpg = KeyPairGenerator.getInstance("RSA");
             kpg.initialize(512);
@@ -65,6 +72,10 @@ public class Main {
                 sendJson(exchange, 405, "{\"error\":\"method_not_allowed\"}");
                 return;
             }
+            if (!isAuthorizedServiceRequest(exchange)) {
+                sendJson(exchange, 401, "{\"error\":\"unauthorized\"}");
+                return;
+            }
 
             String body = readBody(exchange);
             String message = extractJsonString(body, "message");
@@ -91,6 +102,10 @@ public class Main {
         try {
             if (!"POST".equalsIgnoreCase(exchange.getRequestMethod())) {
                 sendJson(exchange, 405, "{\"error\":\"method_not_allowed\"}");
+                return;
+            }
+            if (!isAuthorizedServiceRequest(exchange)) {
+                sendJson(exchange, 401, "{\"error\":\"unauthorized\"}");
                 return;
             }
 
@@ -151,6 +166,17 @@ public class Main {
         try (InputStream in = exchange.getRequestBody()) {
             return new String(in.readAllBytes(), StandardCharsets.UTF_8);
         }
+    }
+
+    private static boolean isAuthorizedServiceRequest(HttpExchange exchange) {
+        String got = exchange.getRequestHeaders().getFirst(API_KEY_HEADER);
+        if (got == null) {
+            return false;
+        }
+        return constantTimeEquals(
+                got.getBytes(StandardCharsets.UTF_8),
+                signatureApiKey.getBytes(StandardCharsets.UTF_8)
+        );
     }
 
     private static void sendJson(HttpExchange exchange, int status, String json) throws IOException {

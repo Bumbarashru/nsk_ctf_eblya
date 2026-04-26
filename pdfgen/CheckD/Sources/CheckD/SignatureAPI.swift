@@ -41,6 +41,12 @@ private enum SignatureServiceEnv {
     static var baseURL: String {
         "http://\(host):\(port)"
     }
+
+    /// Обязательный межсервисный ключ для token-verfer (`X-CheckD-Api-Key`).
+    static var apiKey: String {
+        let raw = ProcessInfo.processInfo.environment["CHECKD_SIGNATURE_API_KEY"] ?? ""
+        return raw.trimmingCharacters(in: .whitespacesAndNewlines)
+    }
 }
 
 public final class SignatureAPI {
@@ -48,6 +54,7 @@ public final class SignatureAPI {
         var request = HTTPClientRequest(url: "\(SignatureServiceEnv.baseURL)/sign")
         request.method = .POST
         request.headers.add(name: "Content-Type", value: "application/json")
+        request.headers.add(name: "X-CheckD-Api-Key", value: SignatureServiceEnv.apiKey)
         request.body = .bytes(try! JSONEncoder().encode(SignSigntaureRequest(message: text)))
         
         guard let response = try? await HTTPClient.shared.execute(request, timeout: .seconds(5)) else {
@@ -67,6 +74,7 @@ public final class SignatureAPI {
         var request = HTTPClientRequest(url: "\(SignatureServiceEnv.baseURL)/validate")
         request.method = .POST
         request.headers.add(name: "Content-Type", value: "application/json")
+        request.headers.add(name: "X-CheckD-Api-Key", value: SignatureServiceEnv.apiKey)
         request.body = .bytes(try! JSONEncoder().encode(ValidateSigntaureRequest(message: text, signature: signature)))
         
         guard let response = try? await HTTPClient.shared.execute(request, timeout: .seconds(5)) else {

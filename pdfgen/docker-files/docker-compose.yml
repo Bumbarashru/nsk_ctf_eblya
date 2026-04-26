@@ -15,7 +15,7 @@ services:
     environment:
       POSTGRES_DB: checkd
       POSTGRES_USER: checkd
-      POSTGRES_PASSWORD: ctf_pass
+      POSTGRES_PASSWORD: rtombotombomftmbotmoimo4i564o56omorgmbomto
     ports:
       - "5006:5432"
     volumes:
@@ -37,12 +37,13 @@ services:
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_USER: checkd
-      PG_PASSWORD: ctf_pass
+      PG_PASSWORD: rtombotombomftmbotmoimo4i564o56omorgmbomto
       PG_DATABASE: checkd
       CHECKD_PRINT_SERVICE_HOST: checkd-print
       CHECKD_PRINT_SERVICE_PORT: "8080"
       CHECKD_SIGNATURE_API_HOST: token-verfer
       CHECKD_SIGNATURE_API_PORT: "8082"
+      CHECKD_SIGNATURE_API_KEY: "change-me-please-long-random-key"
     volumes:
       - token_verfer_keys:/var/lib/checkd/token-verfer:rw
     depends_on:
@@ -84,8 +85,10 @@ services:
       context: ..
       dockerfile: docker-files/token-verfer-1/Dockerfile
     restart: unless-stopped
-    ports:
-      - "8082:8082"
+    expose:
+      - "8082"
+    environment:
+      CHECKD_SIGNATURE_API_KEY: "change-me-please-long-random-key"
     volumes:
       - token_verfer_keys:/app/keys
     networks:
