@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import hmac
+import ipaddress
 import re
 import unicodedata
 from urllib.parse import urljoin, urlparse
@@ -9,6 +10,34 @@ from urllib.parse import urljoin, urlparse
 
 class WebhookConfigError(ValueError):
     pass
+
+
+def _is_blocked_webhook_host(hostname: str) -> bool:
+    host = (hostname or "").strip().lower()
+    if not host:
+        return True
+
+    if host in {"localhost", "host.docker.internal"}:
+        return True
+    if host.endswith(".localhost") or host.endswith(".local") or host.endswith(".internal"):
+        return True
+
+    try:
+        ip = ipaddress.ip_address(host)
+        return (
+            ip.is_private
+            or ip.is_loopback
+            or ip.is_link_local
+            or ip.is_multicast
+            or ip.is_reserved
+            or ip.is_unspecified
+        )
+    except ValueError:
+        # Single-label hosts such as "db" are treated as internal-only names.
+        if "." not in host:
+            return True
+        return False
+
 
 def validate_webhook_base(raw: str) -> str:
     if not raw or not isinstance(raw, str):
@@ -26,6 +55,8 @@ def validate_webhook_base(raw: str) -> str:
         raise WebhookConfigError("Base URL must include a host")
     if parsed.username or parsed.password:
         raise WebhookConfigError("Credentials are not allowed in base URL")
+    if _is_blocked_webhook_host(parsed.hostname):
+        raise WebhookConfigError("Webhook target host is not allowed")
 
     return stripped
 

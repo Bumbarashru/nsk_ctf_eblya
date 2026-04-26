@@ -18,7 +18,6 @@ class ProfileUpdate(BaseModel):
     contact_phone: Optional[str] = Field(default=None, max_length=128)
     workspace: Optional[str] = None
     queue_scope: Optional[str] = None
-    access_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 @router.get("/me")
@@ -103,6 +102,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not has_support_access(current_user):
+        raise HTTPException(403, "Forbidden")
+
     result = await db.execute(select(User))
     users = result.scalars().all()
     payload = []
