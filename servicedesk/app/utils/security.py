@@ -61,22 +61,55 @@ def validate_webhook_base(raw: str) -> str:
     return stripped
 
 
+# def validate_endpoint_path(raw: str) -> str:
+#     if raw is None:
+#         return ""
+#     if not isinstance(raw, str):
+#         raise WebhookConfigError("Endpoint path must be a string")
+#     path = raw.strip()
+#     if len(path) > 1024:
+#         raise WebhookConfigError("Endpoint path too long")
+#     lowered = path.lower()
+#     if lowered.startswith("http://") or lowered.startswith("https://"):
+#         raise WebhookConfigError("Endpoint path must be relative")
+#     return path
 def validate_endpoint_path(raw: str) -> str:
     if raw is None:
         return ""
     if not isinstance(raw, str):
         raise WebhookConfigError("Endpoint path must be a string")
+
     path = raw.strip()
     if len(path) > 1024:
         raise WebhookConfigError("Endpoint path too long")
-    lowered = path.lower()
-    if lowered.startswith("http://") or lowered.startswith("https://"):
+    if not path:
+        return ""
+
+    parsed = urlparse(path)
+    if parsed.scheme or parsed.netloc or path.startswith("//"):
         raise WebhookConfigError("Endpoint path must be relative")
+    if "\\" in path:
+        raise WebhookConfigError("Endpoint path must use forward slashes")
+
+    if not path.startswith("/"):
+        path = "/" + path
     return path
 
 
+
+# def resolve_webhook_target(base: str, path: str) -> str:
+#     return urljoin(base, path)
+
 def resolve_webhook_target(base: str, path: str) -> str:
-    return urljoin(base, path)
+    target = urljoin(base, path or "")
+    parsed = urlparse(target)
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise WebhookConfigError("Resolved webhook target is invalid")
+    if _is_blocked_webhook_host(parsed.hostname):
+        raise WebhookConfigError("Resolved webhook target host is not allowed")
+
+    return target
 
 
 def normalise_filename_fragment(fragment: str) -> str:

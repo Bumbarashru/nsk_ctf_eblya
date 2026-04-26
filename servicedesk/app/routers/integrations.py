@@ -182,7 +182,7 @@ def _resolve_target_for_storage(
             except ValueError as exc:
                 raise HTTPException(400, str(exc))
             return "", ""
-        return _apply_base(hidden_base_url), _apply_path(hidden_endpoint_path)
+        return _apply_base(hidden_base_url), _apply_path(hidden_endpoint_path) 
 
     try:
         provider_default_target(provider)

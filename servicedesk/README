@@ -105,3 +105,61 @@ async def download_export(
         raise HTTPException(404, "File not found")
 
     return FileResponse(file_path, filename=safe_name)
+
+## SSRF bypass через endpoint_path в integrations
+Почему уязвимо: из роутера можно сохранить base_url + endpoint_path; при endpoint_path вида //host/path итоговая цель может сменить хост при urljoin(...) (в delivery utils), что может обойти ограничения на base_url и дать SSRF.
+Было:
+
+ def validate_endpoint_path(raw: str) -> str:
+     if raw is None:
+         return ""
+     if not isinstance(raw, str):
+        raise WebhookConfigError("Endpoint path must be a string")
+     path = raw.strip()
+     if len(path) > 1024:
+         raise WebhookConfigError("Endpoint path too long")
+     lowered = path.lower()
+     if lowered.startswith("http://") or lowered.startswith("https://"):
+        raise WebhookConfigError("Endpoint path must be relative")
+     return path
+
+Стало: 
+
+def validate_endpoint_path(raw: str) -> str:
+    if raw is None:
+        return ""
+    if not isinstance(raw, str):
+        raise WebhookConfigError("Endpoint path must be a string")
+
+    path = raw.strip()
+    if len(path) > 1024:
+        raise WebhookConfigError("Endpoint path too long")
+    if not path:
+        return ""
+
+    parsed = urlparse(path)
+    if parsed.scheme or parsed.netloc or path.startswith("//"):
+        raise WebhookConfigError("Endpoint path must be relative")
+    if "\\" in path:
+        raise WebhookConfigError("Endpoint path must use forward slashes")
+
+    if not path.startswith("/"):
+        path = "/" + path
+    return path
+
+
+Было
+# def resolve_webhook_target(base: str, path: str) -> str:
+#     return urljoin(base, path)
+
+Стало:
+def resolve_webhook_target(base: str, path: str) -> str:
+    target = urljoin(base, path or "")
+    parsed = urlparse(target)
+
+    if parsed.scheme not in ("http", "https") or not parsed.hostname:
+        raise WebhookConfigError("Resolved webhook target is invalid")
+    if _is_blocked_webhook_host(parsed.hostname):
+        raise WebhookConfigError("Resolved webhook target host is not allowed")
+
+    return target
