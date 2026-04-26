@@ -452,21 +452,21 @@ export class Db {
   }
 
   // Vulnerable by design: allows finalize without validating prior transition sequence or owner.
-  finalizeAlchemyRunVulnerable(_userId: number, runId: number, artifactNote: string): Record<string, unknown> {
-    const existing = this.getAlchemyArtifact(runId);
-    if (!existing) {
-      throw new Error("run_not_found");
+  finalizeAlchemyRunVulnerable(userId: number, runId: number, artifactNote: string): Record<string, unknown> {
+    const run = this.db
+      .prepare("SELECT id, state, artifact_note, user_id FROM alchemy_runs WHERE id = ?")
+      .get(runId) as any;
+    if (!run) throw new Error("run_not_found");
+    if (run.user_id !== userId) throw new Error("not_authorized");
+    if (run.state === "finalize" && typeof run.artifact_note === "string") {
+      return run;
     }
-    if (existing.state === "finalize" && typeof existing.artifactNote === "string") {
-      return existing;
-    }
-
     this.db
-      .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ?")
-      .run(artifactNote, runId);
-    this.addGameRun(_userId, "alchemy", 90);
-    this.unlockAchievement(_userId, "ALCHEMIST");
-    return this.getAlchemyArtifact(runId) ?? existing;
+      .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ? AND user_id = ?")
+      .run(artifactNote, runId, userId);
+    this.addGameRun(userId, "alchemy", 90);
+    this.unlockAchievement(userId, "ALCHEMIST");
+    return this.getAlchemyArtifact(runId) ?? run;
   }
 
   getAlchemyArtifact(runId: number): Record<string, unknown> | undefined {
@@ -490,6 +490,12 @@ export class Db {
   }
 
   createTrade(fromUserId: number, toUserId: number, cardId: number): number {
+    const card = this.db
+      .prepare("SELECT id FROM cards WHERE id = ? AND user_id = ?")
+      .get(cardId, fromUserId);
+    if (!card) {
+      throw new Error("card_not_owned_by_from_user");
+    }
     const info = this.db
       .prepare("INSERT INTO trades(from_user_id, to_user_id, card_id, status) VALUES (?, ?, ?, 'pending')")
       .run(fromUserId, toUserId, cardId);
