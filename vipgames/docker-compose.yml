@@ -1,6 +1,7 @@
 services:
   vipgames:
     build: .
+    image: 10.80.0.10:6789/vipgames:latest  # Добавлен тег для локального реестра
     container_name: vipgames
     ports:
       - "8642:3000"

@@ -1,6 +1,6 @@
 services:
   db:
-    image: postgres:16-alpine
+    image: 10.80.0.10:6789/postgres:16-alpine
     container_name: silverpear-db
     restart: unless-stopped
     environment:

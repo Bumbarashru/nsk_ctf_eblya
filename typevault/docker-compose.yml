@@ -6,19 +6,21 @@ networks:
 
 services:
   db:
-    image: postgres:16-alpine
+    image: 10.80.0.10:6789/postgres:16-alpine
     container_name: typevault_db
     restart: unless-stopped
     networks:
       - typevault_net
     environment:
       POSTGRES_USER: typevault
-      POSTGRES_PASSWORD: qwtyuiopdfghjkjhgfdfghjkjhgfghjkjhghjkjhgfdvbnmkuyg
+      POSTGRES_PASSWORD: typevault_secret
       POSTGRES_DB: typevault_prod
     volumes:
       - pgdata:/var/lib/postgresql/data
+    # DB is intentionally not exposed on the host — reachable only within
+    # typevault_net.  The app connects via the service name "db".
     healthcheck:
-      test: ["CMD-SHELL", "pg_isready -U typevault -d typevault_prod"]
+      test: ["CMD-SHELL", "pg_isready -U typevault"]
       interval: 5s
       timeout: 3s
       retries: 10
@@ -33,7 +35,7 @@ services:
     ports:
       - "4000:4000"
     environment:
-      DATABASE_URL: "postgresql://typevault:qwtyuiopdfghjkjhgfdfghjkjhgfghjkjhghjkjhgfdvbnmkuyg@db:5432/typevault_prod"
+      DATABASE_URL: "ecto://typevault:typevault_secret@db/typevault_prod"
       SECRET_KEY_BASE: "CHANGE_ME_IN_PROD_use_mix_phx_gen_secret_output_here_64_chars_min"
       GUARDIAN_SECRET: "CHANGE_ME_IN_PROD_guardian_jwt_signing_key_must_be_strong"
       PHX_HOST: "0.0.0.0"

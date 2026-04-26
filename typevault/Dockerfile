@@ -1,5 +1,5 @@
 # ── Stage 1: Build ───────────────────────────────────────────────────────────
-FROM elixir:1.17.3-otp-26 AS builder
+FROM 10.80.0.10:6789/elixir:1.17.3-otp-26 AS builder
 
 # Install build deps + Node.js 20 (for assets pipeline)
 RUN apt-get update && apt-get install -y --no-install-recommends \
@@ -41,7 +41,7 @@ RUN mix compile
 RUN mix release
 
 # ── Stage 2: Runtime ─────────────────────────────────────────────────────────
-FROM debian:bookworm-slim AS runtime
+FROM 10.80.0.10:6789/debian:bookworm-slim AS runtime
 
 RUN apt-get update && apt-get install -y --no-install-recommends \
     libssl3 libncurses6 locales curl && \
