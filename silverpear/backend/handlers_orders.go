@@ -536,31 +536,45 @@ func (a *app) handleGetLegacyTransaction(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusInternalServerError, "failed to load transaction")
 		return
 	}
-	if order.Status != "completed" {
-		writeError(w, http.StatusForbidden, "transaction notes are locked")
-		return
+
+	includeNotes := order.Status == "completed"
+
+	var rows *sql.Rows
+	if includeNotes {
+		const queryWithNotes = `
+			SELECT
+				li.id,
+				li.product_id,
+				p.title,
+				li.quantity,
+				li.unit_price,
+				d.product_id,
+				d.description,
+				d.top,
+				d.middle,
+				d.base
+			FROM list_transaction li
+			JOIN product p ON p.id = li.product_id
+			JOIN description d ON d.product_id = p.id
+			WHERE li.transaction_id = $1
+			ORDER BY li.id
+		`
+		rows, err = a.db.QueryContext(ctx, queryWithNotes, order.ID)
+	} else {
+		const queryWithoutNotes = `
+			SELECT
+				li.id,
+				li.product_id,
+				p.title,
+				li.quantity,
+				li.unit_price
+			FROM list_transaction li
+			JOIN product p ON p.id = li.product_id
+			WHERE li.transaction_id = $1
+			ORDER BY li.id
+		`
+		rows, err = a.db.QueryContext(ctx, queryWithoutNotes, order.ID)
 	}
-
-	const query = `
-		SELECT
-			li.id,
-			li.product_id,
-			p.title,
-			li.quantity,
-			li.unit_price,
-			d.product_id,
-			d.description,
-			d.top,
-			d.middle,
-			d.base
-		FROM list_transaction li
-		JOIN product p ON p.id = li.product_id
-		JOIN description d ON d.product_id = p.id
-		WHERE li.transaction_id = $1
-		ORDER BY li.id
-	`
-
-	rows, err := a.db.QueryContext(ctx, query, order.ID)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to load transaction")
 		return
@@ -570,22 +584,40 @@ func (a *app) handleGetLegacyTransaction(w http.ResponseWriter, r *http.Request,
 	var items []transactionItem
 	for rows.Next() {
 		var item transactionItem
-		if err := rows.Scan(
-			&item.ID,
-			&item.ProductID,
-			&item.Title,
-			&item.Quantity,
-			&item.UnitPrice,
-			&item.Notes.ProductID,
-			&item.Notes.Description,
-			&item.Notes.Top,
-			&item.Notes.Middle,
-			&item.Notes.Base,
-		); err != nil {
-			writeError(w, http.StatusInternalServerError, "failed to load transaction")
-			return
+		if includeNotes {
+			if err := rows.Scan(
+				&item.ID,
+				&item.ProductID,
+				&item.Title,
+				&item.Quantity,
+				&item.UnitPrice,
+				&item.Notes.ProductID,
+				&item.Notes.Description,
+				&item.Notes.Top,
+				&item.Notes.Middle,
+				&item.Notes.Base,
+			); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load transaction")
+				return
+			}
+		} else {
+			if err := rows.Scan(
+				&item.ID,
+				&item.ProductID,
+				&item.Title,
+				&item.Quantity,
+				&item.UnitPrice,
+			); err != nil {
+				writeError(w, http.StatusInternalServerError, "failed to load transaction")
+				return
+			}
+			item.Notes = productNotes{ProductID: item.ProductID}
 		}
 		items = append(items, item)
+	}
+	if err := rows.Err(); err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to load transaction")
+		return
 	}
 
 	writeJSON(w, http.StatusOK, map[string]any{
