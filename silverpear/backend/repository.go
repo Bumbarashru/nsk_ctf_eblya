@@ -34,6 +34,34 @@ func (a *app) getBuyerByID(ctx context.Context, id int64) (*buyer, error) {
 	return &b, nil
 }
 
+func (a *app) getBuyerByIDTx(ctx context.Context, tx *sql.Tx, id int64) (*buyer, error) {
+	const query = `
+		SELECT id, name, password_hash, role, status, balance, total_spent, next_order_discount, wheel_used, created_at
+		FROM buyer
+		WHERE id = $1
+		FOR UPDATE
+	`
+
+	var b buyer
+	err := tx.QueryRowContext(ctx, query, id).Scan(
+		&b.ID,
+		&b.Name,
+		&b.PasswordHash,
+		&b.Role,
+		&b.Status,
+		&b.Balance,
+		&b.TotalSpent,
+		&b.NextOrderDiscount,
+		&b.WheelUsed,
+		&b.CreatedAt,
+	)
+	if err != nil {
+		return nil, err
+	}
+
+	return &b, nil
+}
+
 func (a *app) getBuyerByName(ctx context.Context, name string) (*buyer, error) {
 	const query = `
 		SELECT id, name, password_hash, role, status, balance, total_spent, next_order_discount, wheel_used, created_at
