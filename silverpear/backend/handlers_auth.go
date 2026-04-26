@@ -155,6 +155,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
         Value:    token,
         Path:     "/",
         HttpOnly: true,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
         MaxAge:   7 * 24 * 3600,
     })
@@ -172,6 +173,7 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
         Value:    "",
         Path:     "/",
         HttpOnly: true,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
         MaxAge:   -1,
     })
