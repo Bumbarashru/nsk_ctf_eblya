@@ -144,39 +144,41 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
         }
     }
 
-    token, err := a.sessions.Create(user.ID)
-    if err != nil {
-        writeError(w, http.StatusInternalServerError, "failed to create session")
-        return
-    }
+	token, err := a.sessions.Create(user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to create session")
+		return
+	}
+	secureCookie := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 
-    http.SetCookie(w, &http.Cookie{
-        Name:     a.cfg.SessionCookieName,
-        Value:    token,
-        Path:     "/",
-        HttpOnly: true,
-        Secure:   true,
-        SameSite: http.SameSiteLaxMode,
-        MaxAge:   7 * 24 * 3600,
-    })
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cfg.SessionCookieName,
+		Value:    token,
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secureCookie,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   7 * 24 * 3600,
+	})
 
     writeJSON(w, http.StatusOK, map[string]any{"buyer": sanitizeBuyer(user)})
 }
 
 func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
-    if cookie, err := r.Cookie(a.cfg.SessionCookieName); err == nil {
-        a.sessions.Delete(cookie.Value)
-    }
+	if cookie, err := r.Cookie(a.cfg.SessionCookieName); err == nil {
+		a.sessions.Delete(cookie.Value)
+	}
+	secureCookie := r.TLS != nil || strings.EqualFold(r.Header.Get("X-Forwarded-Proto"), "https")
 
-    http.SetCookie(w, &http.Cookie{
-        Name:     a.cfg.SessionCookieName,
-        Value:    "",
-        Path:     "/",
-        HttpOnly: true,
-        Secure:   true,
-        SameSite: http.SameSiteLaxMode,
-        MaxAge:   -1,
-    })
+	http.SetCookie(w, &http.Cookie{
+		Name:     a.cfg.SessionCookieName,
+		Value:    "",
+		Path:     "/",
+		HttpOnly: true,
+		Secure:   secureCookie,
+		SameSite: http.SameSiteLaxMode,
+		MaxAge:   -1,
+	})
 
     writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
