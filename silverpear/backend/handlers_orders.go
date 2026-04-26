@@ -454,6 +454,7 @@ func (a *app) handleGetListTransaction(w http.ResponseWriter, r *http.Request, u
 		FROM list_transaction li
 		JOIN purchase_order o ON o.id = li.transaction_id
 		WHERE li.id = $1
+		  AND o.buyer_id = $2
 	`
 
 	var response struct {
@@ -466,7 +467,7 @@ func (a *app) handleGetListTransaction(w http.ResponseWriter, r *http.Request, u
 		} `json:"item"`
 	}
 
-	if err := a.db.QueryRowContext(ctx, query, listID).Scan(
+	if err := a.db.QueryRowContext(ctx, query, listID, user.ID).Scan(
 		&response.Item.ID,
 		&response.Item.TransactionPublicID,
 		&response.Item.ProductID,
