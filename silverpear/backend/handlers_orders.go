@@ -290,7 +290,13 @@ func (a *app) handleCheckoutOrder(w http.ResponseWriter, r *http.Request, user *
 		return
 	}
 
-	total, final, err := a.refreshOrderPricingTx(ctx, tx, order.ID, user)
+	lockedUser, err := a.getBuyerByIDTx(ctx, tx, user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to checkout order")
+		return
+	}
+
+	total, final, err := a.refreshOrderPricingTx(ctx, tx, order.ID, lockedUser)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to checkout order")
 		return
@@ -302,7 +308,7 @@ func (a *app) handleCheckoutOrder(w http.ResponseWriter, r *http.Request, user *
 		DiscountPercent: int(order.PromoPct.Int64),
 		IsOneTime:       true,
 	}
-	if _, err := a.completeOrderWithTotalsTx(ctx, tx, user, order, total, final, promo); err != nil {
+	if _, err := a.completeOrderWithTotalsTx(ctx, tx, lockedUser, order, total, final, promo); err != nil {
 		if errors.Is(err, errInsufficientBalance) {
 			writeError(w, http.StatusConflict, "insufficient balance")
 			return
@@ -370,6 +376,12 @@ func (a *app) handleApplyPromocode(w http.ResponseWriter, r *http.Request, user 
 		return
 	}
 
+	lockedUser, err := a.getBuyerByIDTx(ctx, tx, user.ID)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to apply promocode")
+		return
+	}
+
 	promo, err := a.lookupPromocodeVulnerable(ctx, tx, req.Code, user.ID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) {
@@ -387,14 +399,14 @@ func (a *app) handleApplyPromocode(w http.ResponseWriter, r *http.Request, user 
 		}
 	}
 
-	total, final, err := a.refreshOrderPricingWithPromoTx(ctx, tx, order.ID, user, promo.DiscountPercent)
+	total, final, err := a.refreshOrderPricingWithPromoTx(ctx, tx, order.ID, lockedUser, promo.DiscountPercent)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to apply promocode")
 		return
 	}
 
 	if promo.DiscountPercent >= 100 || final == 0 {
-		if _, err := a.completeOrderWithTotalsTx(ctx, tx, user, order, total, final, promo); err != nil {
+		if _, err := a.completeOrderWithTotalsTx(ctx, tx, lockedUser, order, total, final, promo); err != nil {
 			if errors.Is(err, errEmptyOrder) {
 				writeError(w, http.StatusConflict, "order has no items")
 				return

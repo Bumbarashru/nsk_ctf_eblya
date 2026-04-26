@@ -44,27 +44,10 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    status := strings.TrimSpace(req.Status)
-    if status == "" {
-        status = "beginner"
-    }
-
-    allowedStatuses := map[string]bool{
-        "beginner":       true,
-        "niche":          true,
-        "parfums maniac": true,
-        "n0se":           true,
-        "beauty legend":  true,
-    }
-    if !allowedStatuses[status] {
-        writeError(w, http.StatusBadRequest, "invalid status")
-        return
-    }
+    // Registration status is server-controlled to prevent privilege/discount escalation.
+    status := "beginner"
 
     nextDiscount := 0
-    if status == "beauty legend" {
-        nextDiscount = 100
-    }
 
     ctx, cancel := contextWithTimeout(r.Context())
     defer cancel()
@@ -172,6 +155,7 @@ func (a *app) handleLogin(w http.ResponseWriter, r *http.Request) {
         Value:    token,
         Path:     "/",
         HttpOnly: true,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
         MaxAge:   7 * 24 * 3600,
     })
@@ -189,6 +173,7 @@ func (a *app) handleLogout(w http.ResponseWriter, r *http.Request) {
         Value:    "",
         Path:     "/",
         HttpOnly: true,
+        Secure:   true,
         SameSite: http.SameSiteLaxMode,
         MaxAge:   -1,
     })
