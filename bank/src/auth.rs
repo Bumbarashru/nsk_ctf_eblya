@@ -59,19 +59,37 @@ pub fn create_token(
     encode(&Header::new(Algorithm::RS256), &claims, &key)
 }
 
+/// Verify JWT token, supporting both RS256 (modern) and HS256 (legacy)
 pub fn verify_token(
     token: &str,
     keys: &JwtKeys,
+    device_fingerprint: Option<&str>,  // ← Required for legacy validation
 ) -> Result<Claims, jsonwebtoken::errors::Error> {
     let header = decode_header(token)?;
+    
     match header.alg {
         Algorithm::RS256 => {
-            let validation = Validation::new(Algorithm::RS256);
+            // Modern tokens use RS256
+            let mut validation = Validation::new(Algorithm::RS256);
+            validation.validate_exp = true;
+            validation.leeway = 0;
+            validation.insecure_disable_signature_validation = false;
+            
             let dkey = DecodingKey::from_rsa_pem(keys.public_pem())?;
-            Ok(decode::<Claims>(token, &dkey, &validation)?.claims)
+            let token_data = decode::<Claims>(token, &dkey, &validation)?;
+            Ok(token_data.claims)
         }
-        Algorithm::HS256 => legacy::verify(token, keys),
-        _ => Err(jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into()),
+        
+        Algorithm::HS256 => {
+            // Legacy tokens - delegate to legacy module with security checks
+            log::debug!("Processing legacy HS256 token");
+            legacy::verify(token, keys, device_fingerprint)
+        }
+        
+        _ => {
+            log::warn!("Rejected token with unsupported algorithm: {:?}", header.alg);
+            Err(jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into())
+        }
     }
 }
 
@@ -86,11 +104,19 @@ pub fn require_claims(
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| {
+            log::debug!("Missing or invalid Authorization header");
             HttpResponse::Unauthorized()
                 .json(serde_json::json!({"error": "Authentication required"}))
         })?;
 
-    verify_token(auth, keys).map_err(|_| {
+    // Extract device fingerprint from headers for legacy token validation
+    let device_fingerprint = req
+        .headers()
+        .get("X-Device-Fingerprint")
+        .and_then(|v| v.to_str().ok());
+
+    verify_token(auth, keys, device_fingerprint).map_err(|e| {
+        log::debug!("Token verification failed: {:?}", e);
         HttpResponse::Unauthorized().json(serde_json::json!({"error": "Invalid token"}))
     })
 }
@@ -111,4 +137,45 @@ pub fn generate_rsa_keys() -> (Vec<u8>, Vec<u8>) {
         private_pem.as_bytes().to_vec(),
         public_pem.as_bytes().to_vec(),
     )
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    
+    #[test]
+    fn test_rs256_token_works() {
+        let (priv_pem, pub_pem) = generate_rsa_keys();
+        let keys = JwtKeys::new(priv_pem, pub_pem);
+        
+        let token = create_token("123", "testuser", &keys).unwrap();
+        let claims = verify_token(&token, &keys, None).unwrap();
+        
+        assert_eq!(claims.sub, "123");
+        assert_eq!(claims.username, "testuser");
+    }
+    
+    #[test]
+    fn test_hs256_token_without_nonce_fails() {
+        let (priv_pem, pub_pem) = generate_rsa_keys();
+        let keys = JwtKeys::new(priv_pem, pub_pem);
+        
+        // Create HS256 token WITHOUT nonce (should fail)
+        use jsonwebtoken::{Header, EncodingKey};
+        
+        let fake_claims = Claims {
+            sub: "123".to_string(),
+            username: "testuser".to_string(),
+            exp: (chrono::Utc::now() + chrono::Duration::minutes(5)).timestamp() as usize,
+        };
+        
+        let hs256_token = encode(
+            &Header::new(Algorithm::HS256),
+            &fake_claims,
+            &EncodingKey::from_secret(keys.public_pem()),
+        ).unwrap();
+        
+        // Should fail because missing nonce and device_id
+        assert!(verify_token(&hs256_token, &keys, None).is_err());
+    }
 }
