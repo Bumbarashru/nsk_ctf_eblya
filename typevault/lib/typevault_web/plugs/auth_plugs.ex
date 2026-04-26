@@ -59,7 +59,10 @@ defmodule TypeVaultWeb.Plugs.RequireLocalhost do
   def init(opts), do: opts
 
   def call(conn, _opts) do
-    if local_origin?(conn.remote_ip) do
+    # Получаем реальный IP без доверия к заголовкам
+    real_ip = get_real_ip(conn)
+    
+    if local_origin?(real_ip) and not spoofed?(conn) do
       conn
     else
       conn
@@ -69,10 +72,33 @@ defmodule TypeVaultWeb.Plugs.RequireLocalhost do
     end
   end
 
-  defp local_origin?({127, 0, 0, 1}),                    do: true
-  defp local_origin?({0, 0, 0, 0, 0, 0, 0, 1}),         do: true
+  # Получаем реальный IP, игнорируя X-Forwarded-For
+  defp get_real_ip(conn) do
+    # Пытаемся получить peer data из приватных полей
+    case conn.private do
+      %{peer_data: %{address: ip}} -> ip
+      %{:peer_data => %{address: ip}} -> ip
+      _ -> conn.remote_ip
+    end
+  end
+
+  # Проверяем, нет ли попытки подделать заголовки
+  defp spoofed?(conn) do
+    # Проверяем наличие заголовков, которые могут подделывать IP
+    xff = Plug.Conn.get_req_header(conn, "x-forwarded-for")
+    xri = Plug.Conn.get_req_header(conn, "x-real-ip")
+    forwarded = Plug.Conn.get_req_header(conn, "forwarded")
+    client_ip = Plug.Conn.get_req_header(conn, "client-ip")
+    
+    not (Enum.empty?(xff) and Enum.empty?(xri) and 
+         Enum.empty?(forwarded) and Enum.empty?(client_ip))
+  end
+
+  defp local_origin?({127, 0, 0, 1}), do: true
+  defp local_origin?({0, 0, 0, 0, 0, 0, 0, 1}), do: true
   defp local_origin?({0, 0, 0, 0, 0, 65535, 32512, 1}), do: true
-  defp local_origin?(_),                                 do: false
+  defp local_origin?({172, 17, 0, 1}), do: true  # Docker internal
+  defp local_origin?(_), do: false
 end
 
 defmodule TypeVaultWeb.AuthErrorHandler do
