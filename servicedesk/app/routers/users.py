@@ -11,9 +11,6 @@ from utils.auth import get_current_user, has_support_access
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-ALLOWED_WORKSPACES = {"portal", "kiosk", "operations"}
-ALLOWED_QUEUE_SCOPES = {"personal", "team", "all"}
-
 
 class ProfileUpdate(BaseModel):
     username: Optional[str] = None
@@ -21,7 +18,6 @@ class ProfileUpdate(BaseModel):
     contact_phone: Optional[str] = Field(default=None, max_length=128)
     workspace: Optional[str] = None
     queue_scope: Optional[str] = None
-    access_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 @router.get("/me")
@@ -43,14 +39,28 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     data = body.model_dump(exclude_none=True)
+    protected_fields = {"workspace", "queue_scope", "access_level"}
+    attempted_protected = sorted(protected_fields.intersection(data.keys()))
+    if attempted_protected:
+        raise HTTPException(
+            403,
+            f"Changing protected profile fields is forbidden: {', '.join(attempted_protected)}",
+        )
 
-    if "workspace" in data and data["workspace"] not in ALLOWED_WORKSPACES:
-        raise HTTPException(400, "Unsupported workspace")
-    if "queue_scope" in data and data["queue_scope"] not in ALLOWED_QUEUE_SCOPES:
-        raise HTTPException(400, "Unsupported queue scope")
+    if "username" in data:
+        username = data["username"].strip()
+        if not username:
+            raise HTTPException(400, "Username cannot be empty")
+        current_user.username = username
 
-    for field, value in data.items():
-        setattr(current_user, field, value)
+    if "email" in data:
+        email = data["email"].strip()
+        if not email:
+            raise HTTPException(400, "Email cannot be empty")
+        current_user.email = email
+
+    if "contact_phone" in data:
+        current_user.contact_phone = data["contact_phone"].strip()
 
     await db.commit()
     await db.refresh(current_user)
@@ -92,6 +102,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not has_support_access(current_user):
+        raise HTTPException(403, "Forbidden")
+
     result = await db.execute(select(User))
     users = result.scalars().all()
     payload = []

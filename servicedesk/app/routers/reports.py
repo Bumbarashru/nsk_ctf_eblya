@@ -47,8 +47,8 @@ async def generate_report(
         raise HTTPException(400, str(e))
     except TemplateSyntaxError as e:
         raise HTTPException(400, f"Template syntax error: {e}")
-    except Exception as e:
-        rendered = f"[render error] {str(e)}"
+    except Exception:
+        raise HTTPException(400, "Template render error")
 
     report = Report(
         ticket_id=ticket.id,

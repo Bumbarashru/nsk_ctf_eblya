@@ -4,7 +4,7 @@ services:
     restart: unless-stopped
     environment:
       POSTGRES_USER: sd
-      POSTGRES_PASSWORD: sd_pass
+      POSTGRES_PASSWORD: dfregtfrrgr66754bt55gfd56htfgb
       POSTGRES_DB: servicedesk
     volumes:
       - pgdata:/var/lib/postgresql/data

@@ -5,9 +5,10 @@ from pydantic_settings import BaseSettings
 
 
 class Settings(BaseSettings):
-    database_url: str = "postgresql+asyncpg://sd:sd_pass@localhost/servicedesk"
+    database_url: str = "postgresql+asyncpg://sd:change_me_db_password@localhost/servicedesk"
     dispatchboard_url: str = "http://dispatchboard:8081"
     upload_dir: str = "/uploads"
+    cors_allow_origins: list[str] = Field(default_factory=lambda: ["http://localhost:7070"])
 
     jwt_secret: str = Field(default_factory=lambda: secrets.token_urlsafe(32))
     jwt_algorithm: str = "HS256"
@@ -19,6 +20,7 @@ class Settings(BaseSettings):
 
     share_link_brand: str = "servicedesk.local"
     share_link_revision: str = "v2"
+    share_token_ttl_hours: int = 24 * 7
     portal_base_url: str = "http://localhost:8080"
 
     discord_webhook_url: str | None = "https://example.com"
