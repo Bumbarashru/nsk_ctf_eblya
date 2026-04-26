@@ -21,7 +21,6 @@ class ProfileUpdate(BaseModel):
     contact_phone: Optional[str] = Field(default=None, max_length=128)
     workspace: Optional[str] = None
     queue_scope: Optional[str] = None
-    access_level: Optional[int] = Field(default=None, ge=1, le=5)
 
 
 @router.get("/me")
@@ -43,14 +42,35 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     data = body.model_dump(exclude_none=True)
+    support_mode = has_support_access(current_user)
 
-    if "workspace" in data and data["workspace"] not in ALLOWED_WORKSPACES:
-        raise HTTPException(400, "Unsupported workspace")
-    if "queue_scope" in data and data["queue_scope"] not in ALLOWED_QUEUE_SCOPES:
-        raise HTTPException(400, "Unsupported queue scope")
+    if ("workspace" in data or "queue_scope" in data) and not support_mode:
+        raise HTTPException(403, "Only support users can change workspace routing")
 
-    for field, value in data.items():
-        setattr(current_user, field, value)
+    if "username" in data:
+        username = data["username"].strip()
+        if not username:
+            raise HTTPException(400, "Username cannot be empty")
+        current_user.username = username
+
+    if "email" in data:
+        email = data["email"].strip()
+        if not email:
+            raise HTTPException(400, "Email cannot be empty")
+        current_user.email = email
+
+    if "contact_phone" in data:
+        current_user.contact_phone = data["contact_phone"].strip()
+
+    if support_mode and "workspace" in data:
+        if data["workspace"] not in ALLOWED_WORKSPACES:
+            raise HTTPException(400, "Unsupported workspace")
+        current_user.workspace = data["workspace"]
+
+    if support_mode and "queue_scope" in data:
+        if data["queue_scope"] not in ALLOWED_QUEUE_SCOPES:
+            raise HTTPException(400, "Unsupported queue scope")
+        current_user.queue_scope = data["queue_scope"]
 
     await db.commit()
     await db.refresh(current_user)
@@ -92,6 +112,9 @@ async def list_users(
     db: AsyncSession = Depends(get_db),
     current_user: User = Depends(get_current_user),
 ):
+    if not has_support_access(current_user):
+        raise HTTPException(403, "Forbidden")
+
     result = await db.execute(select(User))
     users = result.scalars().all()
     payload = []

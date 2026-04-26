@@ -1,0 +1,151 @@
+# ServiceDesk Security Notes
+
+Ниже перечислены самые очевидные уязвимости, которые были найдены и закрыты.
+
+## 1) Эскалация привилегий через профиль + обфусцированный `exec`
+
+**Уязвимый код (до):**
+
+```python
+# app/utils/roles.py
+exec(...)
+```
+
+```python
+# app/routers/users.py
+for field, value in data.items():
+    setattr(current_user, field, value)
+```
+
+Проблема: пользователь мог менять поля профиля (`workspace`, `queue_scope`, `access_level`) и попадать в support-mode из-за скрытой логики в `exec`.
+
+**Исправлено (после):**
+
+- `app/utils/roles.py` переписан на прозрачную логику без `exec`.
+- Support-доступ выдается только роли `agent`.
+- `app/routers/users.py` больше не делает слепой `setattr` по входным полям.
+- `workspace/queue_scope` теперь может менять только support-пользователь.
+- `GET /api/users` закрыт для обычных пользователей.
+
+## 2) IDOR в доступе к вложениям тикетов
+
+**Уязвимый код (до):**
+
+```python
+# app/routers/tickets.py
+artifact = await _resolve_artifact_by_reference(artifact_id, db)
+# ... без проверки, что artifact.ticket_id == ticket_id
+```
+
+Проблема: можно было запросить чужой `artifact_id/public_ref` через свой `ticket_id`.
+
+**Исправлено (после):**
+
+- Добавлена проверка соответствия `artifact.ticket_id` и `ticket_id`.
+- Для support/non-support единообразно валидируется сам тикет перед выдачей артефакта.
+
+## 3) Path Traversal в `exports/download`
+
+**Уязвимый код (до):**
+
+```python
+# app/utils/filenames.py
+candidate = _strip_leading_dot_segments(candidate)
+return candidate
+```
+
+Проблема: строки вида `../../etc/passwd` проходили нормализацию частично.
+
+**Исправлено (после):**
+
+- Запрещены `/`, `\`, `..`.
+- Разрешены только безопасные имена по whitelisting-правилу.
+
+## 4) Предсказуемые share-токены
+
+**Уязвимый код (до):**
+
+```python
+# app/utils/share_tokens.py
+token = HMAC(brand, case_number, audience, revision)[:20]
+```
+
+Проблема: токены можно было предсказывать по последовательным `case_number`.
+
+**Исправлено (после):**
+
+- Токены генерируются через `secrets.token_urlsafe(...)`.
+- Добавлена проверка TTL (`share_token_ttl_hours`) для публичных share-ссылок.
+- Просроченные токены автоматически деактивируются.
+
+## 5) Утечка секретов через шаблоны отчетов
+
+**Уязвимый код (до):**
+
+```python
+# app/utils/template_engine.py
+@property
+def defaults(self) -> Settings:
+    return self._env_settings
+```
+
+Проблема: шаблон получал доступ к объекту `Settings` (включая чувствительные поля).
+
+**Исправлено (после):**
+
+- Убран доступ к `Settings` из шаблонного контекста.
+- В контекст передаются только безопасные поля (`brand`, `support_contact`).
+- Ошибки рендера шаблона больше не отдаются пользователю с внутренними деталями.
+
+## 6) Слишком открытый CORS и секреты по умолчанию
+
+**Уязвимый код (до):**
+
+```python
+# app/main.py
+allow_origins=["*"], allow_credentials=True
+```
+
+Проблема: небезопасная CORS-конфигурация + явные dev-секреты в `.env` и compose.
+
+**Исправлено (после):**
+
+- CORS теперь берется из `settings.cors_allow_origins` (ограниченный список).
+- В `app/.env` заменены хардкод-секреты на безопасные значения-заглушки.
+- В `docker-compose.yml` пароль БД вынесен в переменную окружения.
+- Сгенерированный пароль support-аккаунта больше не выводится в логах при seed.
+
+## 7) SSRF через кастомные webhook target-ы
+
+**Уязвимый код (до):**
+
+```python
+# app/utils/security.py
+if not parsed.hostname:
+    raise ...
+return stripped
+```
+
+Проблема: можно было указывать внутренние хосты (например `localhost`, `db`, private IP).
+
+**Исправлено (после):**
+
+- Добавлена валидация host: блокируются loopback/private/internal-only цели.
+- Запрещены односегментные внутренние имена для webhook base URL.
+
+## Измененные файлы
+
+- `app/utils/roles.py`
+- `app/routers/users.py`
+- `app/routers/tickets.py`
+- `app/utils/filenames.py`
+- `app/utils/share_tokens.py`
+- `app/routers/share.py`
+- `app/utils/template_engine.py`
+- `app/utils/security.py`
+- `app/routers/reports.py`
+- `app/database.py`
+- `app/config.py`
+- `app/main.py`
+- `app/.env`
+- `docker-compose.yml`

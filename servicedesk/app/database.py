@@ -163,8 +163,7 @@ async def _seed_support_account():
 
         if generated_password:
             print(
-                "Seeded support account credentials:",
-                f"username={settings.support_username}",
-                f"password={generated_password}",
+                "Seeded support account with generated password. "
+                "Set SUPPORT_PASSWORD to rotate it to an explicit value.",
                 flush=True,
             )

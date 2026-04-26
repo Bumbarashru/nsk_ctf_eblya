@@ -99,6 +99,20 @@ async def _resolve_artifact_by_reference(reference: str, db: AsyncSession) -> Ar
     return result.scalar_one_or_none()
 
 
+async def _get_ticket_for_artifact_route(
+    ticket_id: str,
+    current_user: User,
+    db: AsyncSession,
+) -> Ticket:
+    if has_support_access(current_user):
+        result = await db.execute(select(Ticket).where(Ticket.id == ticket_id))
+        ticket = result.scalar_one_or_none()
+        if not ticket:
+            raise HTTPException(404, "Ticket not found")
+        return ticket
+    return await _get_ticket_with_access(ticket_id, current_user, db)
+
+
 def _ticket_view(ticket: Ticket, support_access: bool) -> dict:
     base = {
         "id": ticket.id,
@@ -398,11 +412,10 @@ async def get_artifact(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not has_support_access(current_user):
-        await _get_ticket_with_access(ticket_id, current_user, db)
+    ticket = await _get_ticket_for_artifact_route(ticket_id, current_user, db)
 
     artifact = await _resolve_artifact_by_reference(artifact_id, db)
-    if not artifact:
+    if not artifact or artifact.ticket_id != ticket.id:
         raise HTTPException(404, "Artifact not found")
 
     return {
@@ -424,11 +437,10 @@ async def download_artifact(
     current_user: User = Depends(get_current_user),
     db: AsyncSession = Depends(get_db),
 ):
-    if not has_support_access(current_user):
-        await _get_ticket_with_access(ticket_id, current_user, db)
+    ticket = await _get_ticket_for_artifact_route(ticket_id, current_user, db)
 
     artifact = await _resolve_artifact_by_reference(artifact_id, db)
-    if not artifact:
+    if not artifact or artifact.ticket_id != ticket.id:
         raise HTTPException(404, "Artifact not found")
     if not os.path.exists(artifact.storage_path):
         raise HTTPException(404, "File not found on disk")

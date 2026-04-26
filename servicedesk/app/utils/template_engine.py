@@ -5,7 +5,7 @@ from typing import Any
 from jinja2 import TemplateSyntaxError
 from jinja2.sandbox import SandboxedEnvironment
 
-from config import Settings, settings
+from config import settings
 
 
 class TemplateRejected(ValueError):
@@ -13,20 +13,17 @@ class TemplateRejected(ValueError):
 
 
 class ReportRuntime:
-    def __init__(self, env_settings: Settings) -> None:
-        self._env_settings = env_settings
+    def __init__(self, brand: str, support_contact: str) -> None:
+        self._brand = brand
+        self._support_contact = support_contact
 
     @property
     def brand(self) -> str:
-        return self._env_settings.share_link_brand
+        return self._brand
 
     @property
     def support_contact(self) -> str:
-        return self._env_settings.support_email
-
-    @property
-    def defaults(self) -> Settings:
-        return self._env_settings
+        return self._support_contact
 
     def format_header(self, ticket: Any) -> str:
         return f"Case {ticket.case_number} — {ticket.title}"
@@ -64,7 +61,10 @@ def build_report_context(ticket: Any, user: Any) -> dict[str, Any]:
     return {
         "ticket": ticket,
         "user": user,
-        "runtime": ReportRuntime(settings),
+        "runtime": ReportRuntime(
+            brand=settings.share_link_brand,
+            support_contact=settings.support_email,
+        ),
     }
 
 
