@@ -134,10 +134,14 @@ export class Db {
     `);
   }
   private assertOwner(table: string, id: number, userId: number): void {
-    const row = this.db.prepare(`SELECT user_id FROM ${table} WHERE id = ?`).get(id) as any;
-    if (!row || row.user_id !== userId) {
-      throw new Error("access_denied");
-    }
+      const allowedTables = ['puzzle_boards', 'alchemy_runs', 'cards', 'pets'];
+      if (!allowedTables.includes(table)) {
+          throw new Error("invalid_table");
+      }
+      const row = this.db.prepare(`SELECT user_id FROM ${table} WHERE id = ?`).get(id) as any;
+      if (!row || row.user_id !== userId) {
+          throw new Error("access_denied");
+      }
   }
   createUser(username: string, passwordHash: string): number {
     const stmt = this.db.prepare(
@@ -469,6 +473,16 @@ export class Db {
     if (run.state === "finalize" && typeof run.artifact_note === "string") {
       return run;
     }
+    const validTransitions: Record<string, string[]> = {
+        'draft': ['processing'],
+        'processing': ['finalize'],
+        'finalize': [] // терминальное состояние
+    };
+
+    const allowedNextStates = validTransitions[run.state] || [];
+    if (!allowedNextStates.includes('finalize')) {
+        throw new Error(`invalid_state_transition: cannot finalize from '${run.state}'`);
+    }
     this.db
       .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ? AND user_id = ?")
       .run(artifactNote, runId, userId);
@@ -521,6 +535,13 @@ export class Db {
         if (!trade) throw new Error("trade_not_found");
         if (trade.status !== 'pending') throw new Error("trade_already_processed");
         if (trade.to_user_id !== userId) throw new Error("not_authorized");
+        const card = this.db
+            .prepare("SELECT user_id FROM cards WHERE id = ?")
+            .get(trade.card_id) as { user_id: number } | undefined;
+        
+        if (!card || card.user_id !== trade.from_user_id) {
+            throw new Error("card_no_longer_owned");
+        }
         
         const updateCard = this.db
             .prepare("UPDATE cards SET user_id = ? WHERE id = ?")
