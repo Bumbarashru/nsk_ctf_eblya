@@ -24,7 +24,7 @@ services:
       PG_HOST: postgres
       PG_PORT: "5432"
       PG_USER: checkd
-      PG_PASSWORD: ctf_pass
+      PG_PASSWORD: rtombotombomftmbotmoimo4i564o56omorgmbomto
       PG_DATABASE: checkd
       # Хост/порт CheckD Print service (имя сервиса в compose print-service — checkd-print, порт 8080).
       CHECKD_PRINT_SERVICE_HOST: checkd-print
@@ -57,7 +57,7 @@ services:
     environment:
       POSTGRES_DB: checkd
       POSTGRES_USER: checkd
-      POSTGRES_PASSWORD: ctf_pass
+      POSTGRES_PASSWORD: rtombotombomftmbotmoimo4i564o56omorgmbomto
     volumes:
       - ../../postgres/init.sql:/docker-entrypoint-initdb.d/init.sql:ro
     networks:
