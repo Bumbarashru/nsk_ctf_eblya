@@ -11,9 +11,6 @@ from utils.auth import get_current_user, has_support_access
 
 router = APIRouter(prefix="/api/users", tags=["users"])
 
-ALLOWED_WORKSPACES = {"portal", "kiosk", "operations"}
-ALLOWED_QUEUE_SCOPES = {"personal", "team", "all"}
-
 
 class ProfileUpdate(BaseModel):
     username: Optional[str] = None
@@ -42,10 +39,13 @@ async def update_profile(
     db: AsyncSession = Depends(get_db),
 ):
     data = body.model_dump(exclude_none=True)
-    support_mode = has_support_access(current_user)
-
-    if ("workspace" in data or "queue_scope" in data) and not support_mode:
-        raise HTTPException(403, "Only support users can change workspace routing")
+    protected_fields = {"workspace", "queue_scope", "access_level"}
+    attempted_protected = sorted(protected_fields.intersection(data.keys()))
+    if attempted_protected:
+        raise HTTPException(
+            403,
+            f"Changing protected profile fields is forbidden: {', '.join(attempted_protected)}",
+        )
 
     if "username" in data:
         username = data["username"].strip()
@@ -61,16 +61,6 @@ async def update_profile(
 
     if "contact_phone" in data:
         current_user.contact_phone = data["contact_phone"].strip()
-
-    if support_mode and "workspace" in data:
-        if data["workspace"] not in ALLOWED_WORKSPACES:
-            raise HTTPException(400, "Unsupported workspace")
-        current_user.workspace = data["workspace"]
-
-    if support_mode and "queue_scope" in data:
-        if data["queue_scope"] not in ALLOWED_QUEUE_SCOPES:
-            raise HTTPException(400, "Unsupported queue scope")
-        current_user.queue_scope = data["queue_scope"]
 
     await db.commit()
     await db.refresh(current_user)
