@@ -124,14 +124,48 @@ pub fn preview_client() -> reqwest::Client {
             if attempt.previous().len() >= 3 {
                 return attempt.stop();
             }
-            if let Some(host) = attempt.url().host_str() {
-                if BLOCKLIST_HOSTS
-                    .iter()
-                    .any(|h| h.eq_ignore_ascii_case(host))
-                {
-                    return attempt.error("redirect to blocked host");
+            
+            let url = attempt.url();
+            
+            // ✅ 1. Проверяем порт
+            if let Some(port) = url.port() {
+                if BLOCKED_PORTS.contains(&port) {
+                    return attempt.error("redirect to blocked port");
                 }
             }
+            
+            // ✅ 2. Получаем хост
+            let host = match url.host_str() {
+                Some(h) => h,
+                None => return attempt.error("redirect missing host"),
+            };
+            
+            // ✅ 3. Проверяем блоклист хостов
+            if BLOCKLIST_HOSTS.iter().any(|h| h.eq_ignore_ascii_case(host)) {
+                return attempt.error("redirect to blocked host");
+            }
+            
+            // ✅ 4. Проверяем IP (если хост — это IP)
+            if let Ok(ip) = host.parse::<IpAddr>() {
+                if is_internal_address(&ip) {
+                    return attempt.error("redirect to internal IP");
+                }
+                return attempt.follow();
+            }
+            
+            // ✅ 5. Для доменов — резолвим и проверяем IP
+            let default_port = url.port_or_known_default().unwrap_or(80);
+            let addrs = match (host, default_port).to_socket_addrs() {
+                Ok(addrs) => addrs,
+                Err(_) => return attempt.error("redirect: cannot resolve host"),
+            };
+            
+            for addr in addrs {
+                if is_internal_address(&addr.ip()) {
+                    return attempt.error("redirect: host resolves to internal address");
+                }
+            }
+            
             attempt.follow()
         }))
         .build()
