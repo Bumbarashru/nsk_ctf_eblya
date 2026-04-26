@@ -19,22 +19,47 @@ type applyPromocodeRequest struct {
 	Code string `json:"code"`
 }
 
-func (a *app) handleWheelSpin(w http.ResponseWriter, r *http.Request, user *buyer) {
-	if user.WheelUsed {
-		writeError(w, http.StatusConflict, "wheel already used")
-		return
+// spinOutcome использует криптостойкий RNG
+func (a *app) spinOutcome(username string) (string, int, bool) {
+	if secureIntn(100) == 0 {
+		return "jackpot", 100, true
 	}
+	discounts := []int{5, 10, 15, 20}
+	idx := secureIntn(len(discounts))
+	return "discount", discounts[idx], false
+}
 
+// jackpotCodeForUser генерирует криптостойкий код джекпота
+func (a *app) jackpotCodeForUser(username string) string {
+	const alphabet = "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+	token := secureString(alphabet, 10)
+	return fmt.Sprintf("%s-%s", token, usernameHash(username))
+}
+
+func (a *app) handleWheelSpin(w http.ResponseWriter, r *http.Request, user *buyer) {
 	ctx, cancel := contextWithTimeout(r.Context())
 	defer cancel()
 
-	outcome, discount, jackpot := a.spinOutcome(user.Name)
 	tx, err := a.db.BeginTx(ctx, nil)
 	if err != nil {
 		writeError(w, http.StatusInternalServerError, "failed to spin wheel")
 		return
 	}
 	defer tx.Rollback()
+
+	// Блокируем строку buyer, чтобы избежать двойного использования колеса
+	var wheelUsed bool
+	err = tx.QueryRowContext(ctx, `SELECT wheel_used FROM buyer WHERE id = $1 FOR UPDATE`, user.ID).Scan(&wheelUsed)
+	if err != nil {
+		writeError(w, http.StatusInternalServerError, "failed to spin wheel")
+		return
+	}
+	if wheelUsed {
+		writeError(w, http.StatusConflict, "wheel already used")
+		return
+	}
+
+	outcome, discount, jackpot := a.spinOutcome(user.Name)
 
 	var code string
 	if jackpot {
