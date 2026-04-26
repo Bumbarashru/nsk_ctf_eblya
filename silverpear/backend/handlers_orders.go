@@ -490,7 +490,7 @@ func (a *app) handleGetLegacyTransaction(w http.ResponseWriter, r *http.Request,
 	ctx, cancel := contextWithTimeout(r.Context())
 	defer cancel()
 
-	order, err := a.getOrderRecordByPublicID(ctx, publicID)
+	order, err := a.getOwnedOrder(ctx, user.ID, publicID)
 	if err != nil {
 		if errors.Is(err, sql.ErrNoRows) || isInvalidTextRepresentation(err) {
 			writeError(w, http.StatusNotFound, "transaction not found")
