@@ -13,7 +13,7 @@ services:
       - typevault_net
     environment:
       POSTGRES_USER: typevault
-      POSTGRES_PASSWORD: typevault_secret
+      POSTGRES_PASSWORD: qwtyuiopdfghjkjhgfdfghjkjhgfghjkjhghjkjhgfdvbnmkuyg
       POSTGRES_DB: typevault_prod
     volumes:
       - pgdata:/var/lib/postgresql/data
