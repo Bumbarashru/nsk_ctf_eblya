@@ -304,36 +304,44 @@ export class Db {
       .all(userId) as Array<Record<string, unknown>>;
   }
 
-  // Vulnerable by design: this function ignores board owner binding and leaks foreign secret_note by code.
   getAchievementDetailsVulnerable(
-    _boardUsername: string,
+    boardUsername: string,
     code: string,
     achievementId?: number
   ): Record<string, unknown> | undefined {
-    if (achievementId) {
-      return this.db
-        .prepare(
-          `SELECT ua.id, ua.code, ua.title, ua.description, ua.points, ua.secret_note AS secretNote,
-                  u.username AS owner
-           FROM user_achievements ua
-           JOIN users u ON u.id = ua.user_id
-           WHERE ua.id = ?
-           LIMIT 1`
-        )
-        .get(achievementId) as Record<string, unknown> | undefined;
+    const user = this.getUserByUsername(boardUsername);
+    if (!user) {
+      throw new Error("user_not_found");
     }
 
-    return this.db
+    if (achievementId) {
+      const row = this.db
+        .prepare(
+          `SELECT ua.id, ua.code, ua.title, ua.description, ua.points,
+                  CASE WHEN ua.user_id = ? THEN ua.secret_note ELSE NULL END AS secretNote,
+                  u.username AS owner
+          FROM user_achievements ua
+          JOIN users u ON u.id = ua.user_id
+          WHERE ua.id = ? AND ua.user_id = ?
+          LIMIT 1`
+        )
+        .get(user.id, achievementId, user.id) as Record<string, unknown> | undefined;
+      return row;
+    }
+
+    const row = this.db
       .prepare(
-        `SELECT ua.id, ua.code, ua.title, ua.description, ua.points, ua.secret_note AS secretNote,
+        `SELECT ua.id, ua.code, ua.title, ua.description, ua.points,
+                CASE WHEN ua.user_id = ? THEN ua.secret_note ELSE NULL END AS secretNote,
                 u.username AS owner
-         FROM user_achievements ua
-         JOIN users u ON u.id = ua.user_id
-         WHERE ua.code = ?
-         ORDER BY ua.id DESC
-         LIMIT 1`
+        FROM user_achievements ua
+        JOIN users u ON u.id = ua.user_id
+        WHERE ua.code = ? AND ua.user_id = ?
+        ORDER BY ua.id DESC
+        LIMIT 1`
       )
-      .get(code) as Record<string, unknown> | undefined;
+      .get(user.id, code, user.id) as Record<string, unknown> | undefined;
+    return row;
   }
 
   createPuzzleBoard(userId: number, title: string): number {
@@ -385,28 +393,44 @@ export class Db {
 
   // Vulnerable by design: validates booster ownership but does not check target pet owner.
   applyBoosterVulnerable(userId: number, boosterId: number, petId: number): Record<string, unknown> {
-    const booster = this.db
-      .prepare("SELECT id, payload, used FROM pet_boosters WHERE id = ? AND user_id = ?")
-      .get(boosterId, userId) as { id: number; payload: string; used: number } | undefined;
+    const transaction = this.db.transaction(() => {
+      const booster = this.db
+        .prepare("SELECT id, payload, used FROM pet_boosters WHERE id = ? AND user_id = ?")
+        .get(boosterId, userId) as { id: number; payload: string; used: number } | undefined;
 
-    if (!booster || booster.used) {
-      throw new Error("booster_not_available");
-    }
+      if (!booster || booster.used) {
+        throw new Error("booster_not_available");
+      }
 
-    const pet = this.getPet(petId);
-    if (!pet) {
-      throw new Error("pet_not_found");
-    }
+      const pet = this.db
+        .prepare("SELECT id, user_id, name, tag, bio, rarity, state_json FROM pets WHERE id = ?")
+        .get(petId) as any;
+      if (!pet) {
+        throw new Error("pet_not_found");
+      }
+      if (pet.user_id !== userId) {
+        throw new Error("pet_does_not_belong_to_user");
+      }
 
-    this.db
-      .prepare("UPDATE pets SET bio = ? WHERE id = ?")
-      .run(`Blessed by ${booster.payload}.`, petId);
-    this.db.prepare("UPDATE pet_boosters SET used = 1 WHERE id = ?").run(boosterId);
-    return {
-      ...pet,
-      bio: `Blessed by ${booster.payload}.`,
-      boosterPayload: booster.payload,
-    };
+      this.db
+        .prepare("UPDATE pets SET bio = ? WHERE id = ?")
+        .run(`Blessed by ${booster.payload}.`, petId);
+
+      this.db.prepare("UPDATE pet_boosters SET used = 1 WHERE id = ?").run(boosterId);
+
+      return {
+        id: pet.id,
+        userId: pet.user_id,
+        name: pet.name,
+        tag: pet.tag,
+        bio: `Blessed by ${booster.payload}.`,
+        rarity: pet.rarity,
+        stateJson: pet.state_json,
+        boosterPayload: booster.payload,
+      };
+    });
+
+    return transaction();
   }
 
   getPet(petId: number): Record<string, unknown> | undefined {
@@ -428,21 +452,21 @@ export class Db {
   }
 
   // Vulnerable by design: allows finalize without validating prior transition sequence or owner.
-  finalizeAlchemyRunVulnerable(_userId: number, runId: number, artifactNote: string): Record<string, unknown> {
-    const existing = this.getAlchemyArtifact(runId);
-    if (!existing) {
-      throw new Error("run_not_found");
+  finalizeAlchemyRunVulnerable(userId: number, runId: number, artifactNote: string): Record<string, unknown> {
+    const run = this.db
+      .prepare("SELECT id, state, artifact_note, user_id FROM alchemy_runs WHERE id = ?")
+      .get(runId) as any;
+    if (!run) throw new Error("run_not_found");
+    if (run.user_id !== userId) throw new Error("not_authorized");
+    if (run.state === "finalize" && typeof run.artifact_note === "string") {
+      return run;
     }
-    if (existing.state === "finalize" && typeof existing.artifactNote === "string") {
-      return existing;
-    }
-
     this.db
-      .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ?")
-      .run(artifactNote, runId);
-    this.addGameRun(_userId, "alchemy", 90);
-    this.unlockAchievement(_userId, "ALCHEMIST");
-    return this.getAlchemyArtifact(runId) ?? existing;
+      .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ? AND user_id = ?")
+      .run(artifactNote, runId, userId);
+    this.addGameRun(userId, "alchemy", 90);
+    this.unlockAchievement(userId, "ALCHEMIST");
+    return this.getAlchemyArtifact(runId) ?? run;
   }
 
   getAlchemyArtifact(runId: number): Record<string, unknown> | undefined {
@@ -466,37 +490,48 @@ export class Db {
   }
 
   createTrade(fromUserId: number, toUserId: number, cardId: number): number {
+    const card = this.db
+      .prepare("SELECT id FROM cards WHERE id = ? AND user_id = ?")
+      .get(cardId, fromUserId);
+    if (!card) {
+      throw new Error("card_not_owned_by_from_user");
+    }
     const info = this.db
       .prepare("INSERT INTO trades(from_user_id, to_user_id, card_id, status) VALUES (?, ?, ?, 'pending')")
       .run(fromUserId, toUserId, cardId);
     return Number(info.lastInsertRowid);
   }
 
-  // Vulnerable by design: accepts trade without strong state ownership guarantees and duplicates the card.
-  acceptTradeVulnerable(_userId: number, tradeId: number): Record<string, unknown> {
-    const trade = this.db
-      .prepare("SELECT id, to_user_id AS toUserId, card_id AS cardId FROM trades WHERE id = ?")
-      .get(tradeId) as { id: number; toUserId: number; cardId: number } | undefined;
-    if (!trade) {
-      throw new Error("trade_not_found");
-    }
-    const card = this.getCard(trade.cardId);
-    if (!card) {
-      throw new Error("card_not_found");
-    }
-    const info = this.db
-      .prepare(
-        `INSERT INTO cards(user_id, custom_name, power, metadata_json)
-         VALUES (?, ?, ?, ?)`
-      )
-      .run(trade.toUserId, card.customName, card.power, card.metadataJson);
-    this.db.prepare("UPDATE trades SET status = 'accepted' WHERE id = ?").run(tradeId);
-    return {
-      ok: true,
-      cardId: Number(info.lastInsertRowid),
-      sourceCardId: trade.cardId,
-    };
-  }
+  acceptTradeVulnerable(userId: number, tradeId: number): Record<string, unknown> {
+    
+    const transaction = this.db.transaction(() => {
+        const trade = this.db
+            .prepare("SELECT id, to_user_id, card_id, status FROM trades WHERE id = ?")
+            .get(tradeId) as any;
+        
+        if (!trade) throw new Error("trade_not_found");
+        if (trade.status !== 'pending') throw new Error("trade_already_processed");
+        if (trade.to_user_id !== userId) throw new Error("not_authorized");
+        
+        const updateCard = this.db
+            .prepare("UPDATE cards SET user_id = ? WHERE id = ?")
+            .run(userId, trade.card_id);
+        
+        if (updateCard.changes === 0) throw new Error("card_transfer_failed");
+        
+        this.db
+            .prepare("UPDATE trades SET status = 'accepted' WHERE id = ?")
+            .run(tradeId);
+        
+        return {
+            ok: true,
+            cardId: trade.card_id,
+            sourceCardId: trade.card_id
+        };
+    });
+    
+    return transaction();
+  } 
 
   getCard(cardId: number): Record<string, unknown> | undefined {
     return this.db
