@@ -18,7 +18,7 @@ COPY libhub_auth.so \
 RUN ldconfig
 
 COPY identity_hub .
-
+RUN chmod +x /app/identity_hub
 RUN mkdir -p /data/identities
 
 EXPOSE 8080
