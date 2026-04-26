@@ -1,7 +1,7 @@
 import os
 import time
-
-from fastapi import APIRouter, Depends, HTTPException
+import re
+from fastapi import APIRouter, Depends, HTTPException, Query
 from fastapi.responses import FileResponse
 from pydantic import BaseModel
 from sqlalchemy import select
@@ -92,26 +92,57 @@ async def create_ticket_export(
     return {
         "ticket_id": ticket.id,
         "export_name": export_name,
-        "download_path": f"/api/files/exports/download?name={export_name}",
+        "download_path": f"/api/files/exports/download?ticket_id={ticket.id}&name={export_name}",
     }
 
 
+# @router.get("/exports/download")
+# async def download_export(
+#     name: str,
+#     current_user: User = Depends(get_current_user),
+# ):
+#     try:
+#         safe_name = normalise_export_name(name)
+#     except FilenameRejected as exc:
+#         raise HTTPException(400, str(exc))
+
+#     if not has_support_access(current_user):
+#         raise HTTPException(403, "Forbidden")
+
+#     file_path = os.path.join(_exports_dir(), safe_name)
+
+#     if not os.path.exists(file_path):
+#         raise HTTPException(404, "File not found")
+
+#     return FileResponse(file_path, filename=os.path.basename(file_path))
+
+# def _export_name_for_ticket(name: str, case_number: str) -> bool:
+#     pattern = re.compile(rf"^case-export-{re.escape(case_number)}-\d+\.txt$")
+#     return bool(pattern.fullmatch(name))
+
 @router.get("/exports/download")
 async def download_export(
-    name: str,
+    ticket_id: str = Query(...),
+    name: str = Query(...),
     current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
 ):
+    ticket = await _ticket_for_export(ticket_id, current_user, db)
+
     try:
         safe_name = normalise_export_name(name)
     except FilenameRejected as exc:
         raise HTTPException(400, str(exc))
 
-    file_path = os.path.join(_exports_dir(), safe_name)
+    if not _export_name_for_ticket(safe_name, ticket.case_number):
+        raise HTTPException(403, "Forbidden")
 
-    if not os.path.exists(file_path):
+    file_path = os.path.join(_exports_dir(), safe_name)
+    if not os.path.isfile(file_path):
         raise HTTPException(404, "File not found")
 
-    return FileResponse(file_path, filename=os.path.basename(file_path))
+    return FileResponse(file_path, filename=safe_name)
+
 
 
 @router.get("/artifact/{artifact_id}")
