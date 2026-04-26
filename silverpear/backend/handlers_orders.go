@@ -536,6 +536,10 @@ func (a *app) handleGetLegacyTransaction(w http.ResponseWriter, r *http.Request,
 		writeError(w, http.StatusInternalServerError, "failed to load transaction")
 		return
 	}
+	if order.Status != "completed" {
+		writeError(w, http.StatusForbidden, "transaction notes are locked")
+		return
+	}
 
 	const query = `
 		SELECT
