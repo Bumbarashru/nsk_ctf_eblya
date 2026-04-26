@@ -1,11 +1,5 @@
 //! JWT issuance and verification.
-//!
-//! Tokens are signed with RS256 using an ephemeral server RSA keypair
-//! generated on startup. For inbound tokens we also accept the legacy
-//! mobile-SDK format — see [`legacy`] for the details. New clients
-//! should only ever issue RS256.
-
-mod legacy;
+//! Tokens are signed and verified with RS256 only.
 
 use actix_web::{HttpRequest, HttpResponse};
 use jsonwebtoken::{
@@ -59,59 +53,34 @@ pub fn create_token(
     encode(&Header::new(Algorithm::RS256), &claims, &key)
 }
 
-/// Verify JWT token, supporting both RS256 (modern) and HS256 (legacy)
-pub fn verify_token(
-    token: &str,
-    keys: &JwtKeys,
-    device_fingerprint: Option<&str>,
-) -> Result<Claims, jsonwebtoken::errors::Error> {
+/// Verify JWT token (RS256 only).
+pub fn verify_token(token: &str, keys: &JwtKeys) -> Result<Claims, jsonwebtoken::errors::Error> {
     let header = decode_header(token)?;
-    
-    match header.alg {
-        Algorithm::RS256 => {
-            let mut validation = Validation::new(Algorithm::RS256);
-            validation.validate_exp = true;
-            validation.leeway = 0;
-            // НЕ пытаемся установить insecure_disable_signature_validation
-            
-            let dkey = DecodingKey::from_rsa_pem(keys.public_pem())?;
-            let token_data = decode::<Claims>(token, &dkey, &validation)?;
-            Ok(token_data.claims)
-        }
-        
-        Algorithm::HS256 => {
-            // Legacy tokens - delegate to legacy module with security checks
-            legacy::verify(token, keys, device_fingerprint)
-        }
-        
-        _ => {
-            Err(jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into())
-        }
+    if header.alg != Algorithm::RS256 {
+        return Err(jsonwebtoken::errors::ErrorKind::InvalidAlgorithm.into());
     }
+
+    let mut validation = Validation::new(Algorithm::RS256);
+    validation.validate_exp = true;
+    validation.leeway = 0;
+
+    let dkey = DecodingKey::from_rsa_pem(keys.public_pem())?;
+    let token_data = decode::<Claims>(token, &dkey, &validation)?;
+    Ok(token_data.claims)
 }
 
 /// Pull the `Authorization: Bearer` token off the request and verify it.
-pub fn require_claims(
-    req: &HttpRequest,
-    keys: &JwtKeys,
-) -> Result<Claims, HttpResponse> {
+pub fn require_claims(req: &HttpRequest, keys: &JwtKeys) -> Result<Claims, HttpResponse> {
     let auth = req
         .headers()
         .get("Authorization")
         .and_then(|v| v.to_str().ok())
         .and_then(|v| v.strip_prefix("Bearer "))
         .ok_or_else(|| {
-            HttpResponse::Unauthorized()
-                .json(serde_json::json!({"error": "Authentication required"}))
+            HttpResponse::Unauthorized().json(serde_json::json!({"error": "Authentication required"}))
         })?;
 
-    // Extract device fingerprint from headers for legacy token validation
-    let device_fingerprint = req
-        .headers()
-        .get("X-Device-Fingerprint")
-        .and_then(|v| v.to_str().ok());
-
-    verify_token(auth, keys, device_fingerprint).map_err(|_| {
+    verify_token(auth, keys).map_err(|_| {
         HttpResponse::Unauthorized().json(serde_json::json!({"error": "Invalid token"}))
     })
 }
