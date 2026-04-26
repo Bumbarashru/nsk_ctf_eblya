@@ -9,7 +9,7 @@ services:
       dockerfile: docker-files/token-verfer-1/Dockerfile
     restart: unless-stopped
     ports:
-      - "8082:8082"
+      - "8052:8052"
     volumes:
       # RSA-ключи между перезапусками (Main.java пишет в keys/)
       - token_verfer_keys:/app/keys

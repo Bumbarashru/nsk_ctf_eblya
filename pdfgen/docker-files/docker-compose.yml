@@ -85,7 +85,7 @@ services:
       dockerfile: docker-files/token-verfer-1/Dockerfile
     restart: unless-stopped
     ports:
-      - "8082:8082"
+      - "8092:8092"
     volumes:
       - token_verfer_keys:/app/keys
     networks:
