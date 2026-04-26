@@ -44,12 +44,8 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
+    // Registration status is server-controlled to prevent privilege/discount escalation.
     status := "beginner"
-    requestedStatus := strings.TrimSpace(req.Status)
-    if requestedStatus != "" && requestedStatus != status {
-        writeError(w, http.StatusBadRequest, "status cannot be set during registration")
-        return
-    }
 
     nextDiscount := 0
 
