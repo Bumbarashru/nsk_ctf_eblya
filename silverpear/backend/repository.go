@@ -434,21 +434,28 @@ type promoLookup struct {
 }
 
 func (a *app) lookupPromocodeVulnerable(ctx context.Context, tx *sql.Tx, code string, buyerID int64) (promoLookup, error) {
-	query := fmt.Sprintf(`
-		SELECT id, code, discount_percent, is_one_time
-		FROM promocode
-		WHERE code = '%s'
-		  AND (owner_id IS NULL OR owner_id = %d)
-		  AND used_by IS NULL
-		LIMIT 1
-	`, code, buyerID)
+    // Используем параметризованный запрос
+    query := `
+        SELECT id, code, discount_percent, is_one_time
+        FROM promocode
+        WHERE code = $1
+          AND (owner_id IS NULL OR owner_id = $2)
+          AND used_by IS NULL
+        LIMIT 1
+        FOR UPDATE  -- Блокируем строку от гонок
+    `
 
-	var promo promoLookup
-	if err := tx.QueryRowContext(ctx, query).Scan(&promo.ID, &promo.Code, &promo.DiscountPercent, &promo.IsOneTime); err != nil {
-		return promo, err
-	}
-
-	return promo, nil
+    var promo promoLookup
+    err := tx.QueryRowContext(ctx, query, code, buyerID).Scan(
+        &promo.ID,
+        &promo.Code,
+        &promo.DiscountPercent,
+        &promo.IsOneTime,
+    )
+    if err != nil {
+        return promo, err
+    }
+    return promo, nil
 }
 
 func (a *app) completeOrderWithTotalsTx(ctx context.Context, tx *sql.Tx, user *buyer, order *orderRecord, total, finalPrice int, promo promoLookup) (*buyer, error) {
