@@ -36,3 +36,72 @@ for field, value in data.items():
 
 - `app/routers/users.py`
 - `app/utils/roles.py`
+
+## IDOR 
+
+Уязвимый вариант (как было до фикса):
+@router.get("/{ticket_id}/artifacts/{artifact_id}")
+async def get_artifact(...):
+    if not has_support_access(current_user):
+        await _get_ticket_with_access(ticket_id, current_user, db)
+
+    artifact = await _resolve_artifact_by_reference(artifact_id, db)
+    if not artifact:
+        raise HTTPException(404, "Artifact not found")
+    return {...}
+
+artifact_id искался глобально, но не проверялось, что найденный artifact.ticket_id совпадает с ticket_id из URL.
+
+Исправленный кусок
+
+ticket = await _get_ticket_for_artifact_route(ticket_id, current_user, db)
+artifact = await _resolve_artifact_by_reference(artifact_id, db)
+if not artifact or artifact.ticket_id != ticket.id:
+    raise HTTPException(404, "Artifact not found")
+
+ЭТО ЛЕЖИТ В ФАЙЛЕ app/routers/tickets.py
+
+## ЕЩЁ IDOR 
+ГДе: app/routers/download_export
+Было: 
+@router.get("/exports/download")
+async def download_export(
+    name: str,
+    current_user: User = Depends(get_current_user),
+):
+    try:
+        safe_name = normalise_export_name(name)
+    except FilenameRejected as exc:
+        raise HTTPException(400, str(exc))
+
+    file_path = os.path.join(_exports_dir(), safe_name)
+
+    if not os.path.exists(file_path):
+        raise HTTPException(404, "File not found")
+
+    return FileResponse(file_path, filename=os.path.basename(file_path))
+
+Стало:
+
+@router.get("/exports/download")
+async def download_export(
+    ticket_id: str = Query(...),
+    name: str = Query(...),
+    current_user: User = Depends(get_current_user),
+    db: AsyncSession = Depends(get_db),
+):
+    ticket = await _ticket_for_export(ticket_id, current_user, db)
+
+    try:
+        safe_name = normalise_export_name(name)
+    except FilenameRejected as exc:
+        raise HTTPException(400, str(exc))
+
+    if not _export_name_for_ticket(safe_name, ticket.case_number):
+        raise HTTPException(403, "Forbidden")
+
+    file_path = os.path.join(_exports_dir(), safe_name)
+    if not os.path.isfile(file_path):
+        raise HTTPException(404, "File not found")
+
+    return FileResponse(file_path, filename=safe_name)
