@@ -1,8 +1,7 @@
 from __future__ import annotations
 
-import base64
-import hashlib
-import hmac
+import secrets
+from datetime import datetime, timedelta, timezone
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -11,33 +10,24 @@ from config import settings
 from models import ShareToken
 
 
-class ShareLinkSigner:
-    def __init__(self, brand: str, revision: str) -> None:
-        self._brand = brand
-        self._revision = revision
-
-    def _key(self) -> bytes:
-        return hashlib.sha256(f"{self._brand}|{self._revision}".encode("utf-8")).digest()[:32]
-
-    def _material(self, case_number: str, audience: str) -> bytes:
-        parts = [self._brand, case_number, audience, self._revision]
-        return "\x1f".join(parts).encode("utf-8")
-
-    def sign(self, case_number: str, audience: str) -> str:
-        mac = hmac.new(self._key(), self._material(case_number, audience), hashlib.sha256).digest()
-        encoded = base64.urlsafe_b64encode(mac).decode("ascii").rstrip("=")
-        return encoded[:20]
-
-
-def _signer() -> ShareLinkSigner:
-    return ShareLinkSigner(
-        brand=settings.share_link_brand,
-        revision=settings.share_link_revision,
-    )
+def _created_at_utc(share: ShareToken) -> datetime:
+    created_at = share.created_at
+    if created_at.tzinfo is None:
+        return created_at.replace(tzinfo=timezone.utc)
+    return created_at.astimezone(timezone.utc)
 
 
 def build_share_token(case_number: str, audience: str = "external-review") -> str:
-    return _signer().sign(case_number, audience)
+    return secrets.token_urlsafe(24)
+
+
+def is_share_token_valid(share: ShareToken) -> bool:
+    if not share.is_active:
+        return False
+
+    ttl = timedelta(hours=settings.share_token_ttl_hours)
+    age = datetime.now(timezone.utc) - _created_at_utc(share)
+    return age <= ttl
 
 
 async def ensure_share_token(
@@ -47,16 +37,20 @@ async def ensure_share_token(
     case_number: str,
     audience: str = "external-review",
 ) -> ShareToken:
-    token = build_share_token(case_number, audience)
-    result = await db.execute(select(ShareToken).where(ShareToken.token == token))
+    result = await db.execute(
+        select(ShareToken)
+        .where(ShareToken.ticket_id == ticket_id)
+        .where(ShareToken.is_active.is_(True))
+        .order_by(ShareToken.created_at.desc())
+    )
     share = result.scalar_one_or_none()
-    if share:
-        if not share.is_active:
-            share.is_active = True
-            await db.commit()
-            await db.refresh(share)
+    if share and is_share_token_valid(share):
         return share
 
+    if share and not is_share_token_valid(share):
+        share.is_active = False
+
+    token = build_share_token(case_number, audience)
     share = ShareToken(
         ticket_id=ticket_id,
         created_by=created_by,

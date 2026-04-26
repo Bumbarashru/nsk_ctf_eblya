@@ -7,7 +7,7 @@ from database import get_db
 from models import Artifact, ShareToken, Ticket, TicketMessage, User
 from models import User as UserModel
 from utils.auth import get_current_user, has_support_access
-from utils.share_tokens import ensure_share_token
+from utils.share_tokens import ensure_share_token, is_share_token_valid
 
 router = APIRouter(prefix="/api/share", tags=["share"])
 
@@ -57,7 +57,13 @@ async def view_shared_ticket(
 ):
     result = await db.execute(select(ShareToken).where(ShareToken.token == token))
     share = result.scalar_one_or_none()
-    if not share or not share.is_active:
+    if not share:
+        raise HTTPException(404, "Share token not found or expired")
+
+    if not is_share_token_valid(share):
+        if share.is_active:
+            share.is_active = False
+            await db.commit()
         raise HTTPException(404, "Share token not found or expired")
 
     t_result = await db.execute(select(Ticket).where(Ticket.id == share.ticket_id))
