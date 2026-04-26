@@ -472,31 +472,36 @@ export class Db {
     return Number(info.lastInsertRowid);
   }
 
-  // Vulnerable by design: accepts trade without strong state ownership guarantees and duplicates the card.
-  acceptTradeVulnerable(_userId: number, tradeId: number): Record<string, unknown> {
-    const trade = this.db
-      .prepare("SELECT id, to_user_id AS toUserId, card_id AS cardId FROM trades WHERE id = ?")
-      .get(tradeId) as { id: number; toUserId: number; cardId: number } | undefined;
-    if (!trade) {
-      throw new Error("trade_not_found");
-    }
-    const card = this.getCard(trade.cardId);
-    if (!card) {
-      throw new Error("card_not_found");
-    }
-    const info = this.db
-      .prepare(
-        `INSERT INTO cards(user_id, custom_name, power, metadata_json)
-         VALUES (?, ?, ?, ?)`
-      )
-      .run(trade.toUserId, card.customName, card.power, card.metadataJson);
-    this.db.prepare("UPDATE trades SET status = 'accepted' WHERE id = ?").run(tradeId);
-    return {
-      ok: true,
-      cardId: Number(info.lastInsertRowid),
-      sourceCardId: trade.cardId,
-    };
-  }
+  acceptTradeVulnerable(userId: number, tradeId: number): Record<string, unknown> {
+    
+    const transaction = this.db.transaction(() => {
+        const trade = this.db
+            .prepare("SELECT id, to_user_id, card_id, status FROM trades WHERE id = ?")
+            .get(tradeId) as any;
+        
+        if (!trade) throw new Error("trade_not_found");
+        if (trade.status !== 'pending') throw new Error("trade_already_processed");
+        if (trade.to_user_id !== userId) throw new Error("not_authorized");
+        
+        const updateCard = this.db
+            .prepare("UPDATE cards SET user_id = ? WHERE id = ?")
+            .run(userId, trade.card_id);
+        
+        if (updateCard.changes === 0) throw new Error("card_transfer_failed");
+        
+        this.db
+            .prepare("UPDATE trades SET status = 'accepted' WHERE id = ?")
+            .run(tradeId);
+        
+        return {
+            ok: true,
+            cardId: trade.card_id,
+            sourceCardId: trade.card_id
+        };
+    });
+    
+    return transaction();
+  } 
 
   getCard(cardId: number): Record<string, unknown> | undefined {
     return this.db
