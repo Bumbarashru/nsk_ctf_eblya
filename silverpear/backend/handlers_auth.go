@@ -44,27 +44,14 @@ func (a *app) handleRegister(w http.ResponseWriter, r *http.Request) {
         return
     }
 
-    status := strings.TrimSpace(req.Status)
-    if status == "" {
-        status = "beginner"
-    }
-
-    allowedStatuses := map[string]bool{
-        "beginner":       true,
-        "niche":          true,
-        "parfums maniac": true,
-        "n0se":           true,
-        "beauty legend":  true,
-    }
-    if !allowedStatuses[status] {
-        writeError(w, http.StatusBadRequest, "invalid status")
+    status := "beginner"
+    requestedStatus := strings.TrimSpace(req.Status)
+    if requestedStatus != "" && requestedStatus != status {
+        writeError(w, http.StatusBadRequest, "status cannot be set during registration")
         return
     }
 
     nextDiscount := 0
-    if status == "beauty legend" {
-        nextDiscount = 100
-    }
 
     ctx, cancel := contextWithTimeout(r.Context())
     defer cancel()
