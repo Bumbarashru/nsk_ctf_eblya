@@ -1,3 +1,12 @@
+
+BANK - 5000
+VIPSERVES - 8642
+identityhub - 8768|
+
+
+
+
+
 чат сэтэфэ: https://chat.sslctf.ru/
 
 Данил сус админ - 10.1.15.11

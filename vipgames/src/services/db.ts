@@ -133,7 +133,16 @@ export class Db {
       CREATE INDEX IF NOT EXISTS idx_journal_user ON achievement_journal(user_id);
     `);
   }
-
+  private assertOwner(table: string, id: number, userId: number): void {
+      const allowedTables = ['puzzle_boards', 'alchemy_runs', 'cards', 'pets'];
+      if (!allowedTables.includes(table)) {
+          throw new Error("invalid_table");
+      }
+      const row = this.db.prepare(`SELECT user_id FROM ${table} WHERE id = ?`).get(id) as any;
+      if (!row || row.user_id !== userId) {
+          throw new Error("access_denied");
+      }
+  }
   createUser(username: string, passwordHash: string): number {
     const stmt = this.db.prepare(
       "INSERT INTO users(username, password_hash) VALUES (?, ?)"
@@ -364,12 +373,15 @@ export class Db {
     this.unlockAchievement(userId, "PUZZLE_KNIGHT");
   }
 
-  getPuzzleBoard(boardId: number): Record<string, unknown> | undefined {
+  getPuzzleBoard(userId: number, boardId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, title, stego_payload AS stegoPayload, tiles_seed AS tilesSeed, solved FROM puzzle_boards WHERE id = ?"
+        `SELECT id, user_id AS userId, title, stego_payload AS stegoPayload, 
+                tiles_seed AS tilesSeed, solved 
+        FROM puzzle_boards 
+        WHERE id = ? AND user_id = ?`  
       )
-      .get(boardId) as Record<string, unknown> | undefined;
+      .get(boardId, userId) as Record<string, unknown> | undefined;
   }
 
   createPet(userId: number, name: string, tag: string): number {
@@ -433,12 +445,12 @@ export class Db {
     return transaction();
   }
 
-  getPet(petId: number): Record<string, unknown> | undefined {
+  getPet(userId: number, petId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, name, tag, bio, rarity, state_json AS stateJson FROM pets WHERE id = ?"
+        "SELECT id, user_id AS userId, name, tag, bio, rarity, state_json AS stateJson FROM pets WHERE id = ? AND user_id = ?"
       )
-      .get(petId) as Record<string, unknown> | undefined;
+      .get(petId, userId) as Record<string, unknown> | undefined;
   }
 
   createAlchemyRun(userId: number, recipe: string): number {
@@ -461,15 +473,26 @@ export class Db {
     if (run.state === "finalize" && typeof run.artifact_note === "string") {
       return run;
     }
+    const validTransitions: Record<string, string[]> = {
+        'draft': ['processing'],
+        'processing': ['finalize'],
+        'finalize': [] // терминальное состояние
+    };
+
+    const allowedNextStates = validTransitions[run.state] || [];
+    if (!allowedNextStates.includes('finalize')) {
+        throw new Error(`invalid_state_transition: cannot finalize from '${run.state}'`);
+    }
     this.db
       .prepare("UPDATE alchemy_runs SET state = 'finalize', artifact_note = ? WHERE id = ? AND user_id = ?")
       .run(artifactNote, runId, userId);
     this.addGameRun(userId, "alchemy", 90);
     this.unlockAchievement(userId, "ALCHEMIST");
-    return this.getAlchemyArtifact(runId) ?? run;
+    return this.getAlchemyArtifact(userId, runId) ?? run;
   }
 
-  getAlchemyArtifact(runId: number): Record<string, unknown> | undefined {
+  getAlchemyArtifact(userId: number, runId: number): Record<string, unknown> | undefined {
+    this.assertOwner("alchemy_runs", runId, userId);
     return this.db
       .prepare(
         "SELECT id, user_id AS userId, recipe, state, artifact_note AS artifactNote FROM alchemy_runs WHERE id = ?"
@@ -512,6 +535,13 @@ export class Db {
         if (!trade) throw new Error("trade_not_found");
         if (trade.status !== 'pending') throw new Error("trade_already_processed");
         if (trade.to_user_id !== userId) throw new Error("not_authorized");
+        const card = this.db
+            .prepare("SELECT user_id FROM cards WHERE id = ?")
+            .get(trade.card_id) as { user_id: number } | undefined;
+        
+        if (!card || card.user_id !== trade.from_user_id) {
+            throw new Error("card_no_longer_owned");
+        }
         
         const updateCard = this.db
             .prepare("UPDATE cards SET user_id = ? WHERE id = ?")
@@ -533,12 +563,12 @@ export class Db {
     return transaction();
   } 
 
-  getCard(cardId: number): Record<string, unknown> | undefined {
+  getCard(userId: number, cardId: number): Record<string, unknown> | undefined {
     return this.db
       .prepare(
-        "SELECT id, user_id AS userId, custom_name AS customName, power, metadata_json AS metadataJson FROM cards WHERE id = ?"
+        "SELECT id, user_id AS userId, custom_name AS customName, power, metadata_json AS metadataJson FROM cards WHERE id = ? AND user_id = ?"
       )
-      .get(cardId) as Record<string, unknown> | undefined;
+      .get(cardId, userId) as Record<string, unknown> | undefined;
   }
 
   listRecentRuns(limit = 20): Array<Record<string, unknown>> {

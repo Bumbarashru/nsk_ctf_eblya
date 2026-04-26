@@ -4,7 +4,7 @@ defmodule TypeVaultWeb.Endpoint do
   @session_options [
     store: :cookie,
     key: "_typevault_key",
-    signing_salt: "Hy5rLp9K",
+    signing_salt: "GHKMGVYJ56bgdfolkjfbjflkl",
     same_site: "Lax"
   ]
 
