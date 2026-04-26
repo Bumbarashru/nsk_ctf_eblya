@@ -24,7 +24,6 @@ export const webRoutes: FastifyPluginAsync = async (app) => {
 
   app.get("/login", async (request, reply) => {
     if (request.currentUser) {
-      return reply.redirect("/portal");
     }
     return reply.view("pages/login.njk", { title: "Login" });
   });
