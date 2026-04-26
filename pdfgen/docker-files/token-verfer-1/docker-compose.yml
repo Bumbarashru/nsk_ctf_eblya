@@ -8,10 +8,8 @@ services:
       context: ../..
       dockerfile: docker-files/token-verfer-1/Dockerfile
     restart: unless-stopped
-    expose:
-      - "8082"
-    environment:
-      CHECKD_SIGNATURE_API_KEY: "change-me-please-long-random-key"
+    ports:
+      - "8082:8082"
     volumes:
       # RSA-ключи между перезапусками (Main.java пишет в keys/)
       - token_verfer_keys:/app/keys
